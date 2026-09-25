@@ -3,8 +3,8 @@
 Shantae (USA) recompiled to native code with [gbrecompiled](https://github.com/mstan/gbrecompiled).
 Boots as a Game Boy Advance by default, so the GBA Enhanced extras are on (title badge, the Bandit
 Town Tinkerbat secret), while the palette loader is kept on the original GBC colors. On top of
-that: an expanded world view up to 1024×480, no slowdown, reduced input lag, rewind, and
-RetroArch shader presets through librashader.
+that: an expanded world view (an aspect ratio of your choice, or Adaptive to fill the whole
+screen), no slowdown, reduced input lag, rewind, and RetroArch shader presets through librashader.
 
 ## Download
 
@@ -126,11 +126,14 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
   The Esc → Shantae checkbox applies it immediately.
 - **Expanded view** (off by default): a larger world view with the original pixel
   scale and the status bar at the bottom, 256×240 (NES size) unless changed. Enable
-  it on the Mods page, then launch. Its options set the size: an **Aspect ratio**
-  preset (Game Boy 10:9, NES 16:15, 4:3, 16:10, 16:9, 21:9, 32:9) sets the width
-  for the current height, and **Width** (160–1024) and **Height** (144–480) adjust
-  one pixel at a time; any other size is shown as Custom. The in-game Esc → Shantae
-  section has the same controls. View settings take effect on the next launch.
+  it on the Mods page, then launch. Its options set the size: **Adaptive** fills the
+  whole screen or window, whatever its shape (Height is then the least height); an
+  **Aspect ratio** preset (Game Boy 10:9, NES 16:15, 4:3, 16:10, 16:9, 21:9, 32:9)
+  sets the width for the current height, and **Width** and **Height** (160–8192 and
+  144–8192) adjust one pixel at a time; any other size is shown as Custom. Rooms
+  smaller than the view zoom in to fill it (**Room zoom**). The in-game Esc → Shantae
+  section has the same controls, and a size changed there applies at once; turning
+  the view on or off takes effect on the next launch.
 
 **Preemptive Frames** (Esc → Advanced → Display; 1 by default for Shantae) is the
 runtime's port of RetroArch's preemptive frames (`runahead.c`, `preempt_run`).
