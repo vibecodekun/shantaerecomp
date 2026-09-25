@@ -1,0 +1,7 @@
+#!/bin/sh
+# The game finds its assets beside itself (usr/bin) and keeps its settings and
+# saves beside the .AppImage ($APPIMAGE); starting there too keeps anything
+# written relative to the working folder in the same place.
+HERE="$(dirname "$(readlink -f "$0")")"
+[ -n "$APPIMAGE" ] && cd "$(dirname "$APPIMAGE")"
+exec "$HERE/usr/bin/shantae" "$@"

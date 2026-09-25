@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Shantae (Recompiled)
+Comment=Shantae for Game Boy Color, recompiled to native code
+Exec=shantae
+Icon=shantae
+Categories=Game;ActionGame;
+Terminal=false

@@ -1,0 +1,271 @@
+# Shantae (USA) - Game Boy Color, MBC5 + RAM + battery, 4 MiB (256 banks)
+# Used with: gbrecompiled/build/bin/gbrecomp --config shantae.toml
+
+[rom]
+path = "roms/shantae.gbc"
+# One level below the repo root so extras.c / game_build.cmake are picked up.
+output_dir = "generated"
+runtime_dir = "../gbrecompiled/runtime"
+valid_crcs = [0xE994B59B]
+# Curated routine names + candidate entry points (tools/gen_annotations.py).
+annotations = "shantae.annotations"
+
+[options]
+# Native entry at every byte in every ROM bank, plus bank-zero alias and HALT bug.
+exhaustive_rom = true
+# Fast-path function discovery in historically identified code banks. Exhaustive
+# native entries cover ALL banks regardless of this list. Routines reached only
+# through computed jumps (script opcodes, JP-stub tables, object handlers) are
+# compiled even if no test run has executed them. Spurious hits are harmless:
+# dispatch is keyed on the exact (bank, PC) the CPU is at. The pointer probe
+# (every bank-0 pointer x 255 banks) stays off -- far too slow on 4 MiB.
+aggressive_scan = true
+pointer_scan = false
+scan_banks = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x09, 0x0A, 0x0B, 0x0C,
+              0x0D, 0x0E, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A,
+              0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
+              0x27, 0x33, 0x3D]
+emit_comments = true
+# RST $00 -> JP $3962: ADD A / POP HL / ... / JP HL, inline dw table after each RST.
+jump_table_rst = [0x00]
+# Seed every far-call target found by byte-scanning for CALL $0540/$056B/$0571.
+scan_inline_calls = true
+# Interrupt returns and frame boundaries resume at arbitrary PCs (e.g. HBlank
+# STAT polling loops); give every compiled instruction a dispatch entry.
+resumable_instructions = true
+
+# CALL $0540 ; dw addr ; db bank -- far call, bank kept in HRAM $FF91,
+# returns past the inline bytes via the bank-restore stub at $0564.
+[[inline_call]]
+routine = 0x0540
+
+# CALL $056B ; dw addr ; db bank -- far jump after LD SP,$CFFF (scene changes).
+[[inline_call]]
+routine = 0x056B
+no_return = true
+
+# CALL $0571 ; dw addr ; db bank -- far jump keeping the stack.
+[[inline_call]]
+routine = 0x0571
+no_return = true
+
+# Palette loader (00:1C7A) GBA test: LDH A,($FE) / CP 3 / JR NZ. On GBA it adds
+# $40 to the palette source (the brightened copy). extras.c overrides this
+# immediate when "Original GBC colors" is on; other GBA checks are untouched.
+[[imm_override]]
+bank = 0
+addr = 0x1CB6
+note = "palette loader GBA check -> original GBC palettes on GBA"
+
+# Sprite pipeline ("Reduce input lag" in extras.c). The VBlank handler streams
+# the tick's sprite graphics (C4C0) to VRAM with an HBlank DMA, finished only by
+# the end of the next picture, so 01:667C points the OAM DMA page at the previous
+# tick's buffer. The hooks copy the fresh buffer instead, upload with a general
+# DMA and move the sprites onto the committed scroll: sprites one frame sooner.
+[[imm_override]]
+bank = 0
+addr = 0x0A50
+note = "LD A,$07 before CALL $FF80: copy the buffer this tick wrote (hook only)"
+
+[[imm_override]]
+bank = 0
+addr = 0x0A7D
+note = "LD A,$CF (HBlank DMA of sprite graphics) -> $4F general DMA"
+
+# Both camera routines (03:724D, 03:72EB) build the scroll from the camera and
+# the background offset C9D2/C9D4, which bosses move later in the tick; the
+# copy needs the offset the committed scroll was built with.
+[[imm_override]]
+bank = 3
+addr = 0x730E
+note = "AND $F8 after the scroll build: note the offset it used (hook only)"
+
+# Movement after scripts ("Reduce input lag" in extras.c). Every loop calls the
+# movement routines (00:0C45) and then the object scripts (00:1305). When the
+# player's script picks a new movement routine (jump, walk, ...), it would first
+# run in the next tick's 00:0C45; the hooks run it once right after the script.
+[[imm_override]]
+bank = 0
+addr = 0x130B
+note = "LD A,$03 in the script phase's prologue: note the player's movement routine (hook only)"
+
+[[imm_override]]
+bank = 0
+addr = 0x1384
+note = "ADD A,$7E, next object slot: run the player's new movement routine now (hook only)"
+
+# The object table grown past 32 slots for the expanded view (object_slots.c):
+# the loops that count slots take the table's size, and the unrolled movement
+# pass stops before slot 31 so the slots past it move first. The object
+# scripts step from slot 92 to A000 at 00:1384 (the ADD A,$7E above).
+[[imm_override]]
+bank = 1
+addr = 0x4CD1
+note = "LD A,$20: slots in the free list 01:4CB6 builds from D000 -> 93 with the view"
+
+[[imm_override]]
+bank = 1
+addr = 0x4CFE
+note = "LD A,$00 after 01:4CB6's loop: link slot 92 on to the slots at A000 (hook only)"
+
+[[imm_override]]
+bank = 0
+addr = 0x1312
+note = "LD E,$20: slots the object scripts (00:1305) visit -> the table's size"
+
+[[imm_override]]
+bank = 0
+addr = 0x0C4B
+note = "LD A,$03 in the movement pass (00:0C45): stop here to move the slots past 31 (hook only)"
+
+# The collision node pool 01:711E builds in bank 7 (12 nodes at DD40) grows
+# with the table: its free list goes on to the nodes at E000.
+[[imm_override]]
+bank = 1
+addr = 0x7186
+note = "LD A,$40 after 01:711E's loop: link the last node on to the nodes at E000 (hook only)"
+
+# 09:480D gives an object (DE) a node, then clears the object's +$6B through
+# BC, where 01:7192 left the node: another object's byte in bank 3.
+[[imm_override]]
+bank = 9
+addr = 0x4880
+note = "LD A,$00 before LD (HL),A: clear the object's +$6B, not the node's (hook only)"
+
+# The expanded trigger can create the platform group before the doorway does.
+[[imm_override]]
+bank = 9
+addr = 0x495A
+note = "LD A,$01: keep platform-group creation idempotent and require eight free slots"
+
+[[imm_override]]
+bank = 9
+addr = 0x499D
+note = "LD A,$00: do not free an already-removed platform group"
+
+# The save routines switch cartridge RAM on and off with interrupts disabled;
+# the object slots at A000 step aside in between (hook only).
+[[imm_override]]
+bank = 4
+addr = 0x4CA8
+note = "LD A,$0A: cartridge RAM on (checksum)"
+
+[[imm_override]]
+bank = 4
+addr = 0x4CF6
+note = "LD A,$0A: cartridge RAM on (save)"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D30
+note = "LD A,$0A: cartridge RAM on (erase)"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D5A
+note = "LD A,$0A: cartridge RAM on (load)"
+
+[[imm_override]]
+bank = 4
+addr = 0x4CDF
+note = "LD A,$00: cartridge RAM off"
+
+[[imm_override]]
+bank = 4
+addr = 0x4CE8
+note = "LD A,$00: cartridge RAM off"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D24
+note = "LD A,$00: cartridge RAM off"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D4E
+note = "LD A,$00: cartridge RAM off"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D90
+note = "LD A,$00: cartridge RAM off"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D99
+note = "LD A,$00: cartridge RAM off"
+
+# Inline-argument routines: CALL routine ; <args> -- they read their arguments
+# through the return address and resume past them. Lengths from
+# tools/inline_args.py (straight-line HL increments before PUSH HL), plus two
+# read by hand. The analyzer resumes after the arguments instead of decoding
+# them as code.
+
+# $0474: LD HL,SP+8 / ADD 4 to the return address -- dw ptr ; dw ptr.
+[[inline_call]]
+routine = 0x0474
+arg_bytes = 4
+far_target = false
+
+# $1C7A load_palettes: 7-byte records {count, dw src, db bank, dw dst, db},
+# repeated until a zero count byte (JP $1C7A loops back to its POP HL).
+[[inline_call]]
+routine = 0x1C7A
+record_bytes = 7
+far_target = false
+
+[[inline_call]]  # 229 call sites
+routine = 0x0803
+arg_bytes = 8
+far_target = false
+
+[[inline_call]]  # 70 call sites
+routine = 0x0FA2
+arg_bytes = 1
+far_target = false
+
+[[inline_call]]  # 83 call sites
+routine = 0x1B28
+arg_bytes = 1
+far_target = false
+
+[[inline_call]]  # 2 call sites
+routine = 0x1B40
+arg_bytes = 1
+far_target = false
+
+[[inline_call]]  # 8 call sites
+routine = 0x1B52
+arg_bytes = 1
+far_target = false
+
+[[inline_call]]  # 63 call sites
+routine = 0x232C
+arg_bytes = 4
+far_target = false
+
+[[inline_call]]  # 10 call sites
+routine = 0x235C
+arg_bytes = 2
+far_target = false
+
+[[inline_call]]  # 24 call sites
+routine = 0x2C4F
+arg_bytes = 1
+far_target = false
+
+[[inline_call]]  # 24 call sites
+routine = 0x2C6F
+arg_bytes = 1
+far_target = false
+
+[[inline_call]]  # 38 call sites
+routine = 0x2C8F
+arg_bytes = 1
+far_target = false
+
+[[inline_call]]  # 34 call sites
+routine = 0x2CAF
+arg_bytes = 1
+far_target = false
+

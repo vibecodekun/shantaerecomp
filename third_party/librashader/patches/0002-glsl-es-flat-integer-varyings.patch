@@ -1,0 +1,49 @@
+--- a/librashader-reflect/src/reflect/cross/glsl.rs
++++ b/librashader-reflect/src/reflect/cross/glsl.rs
+@@ -27,9 +27,46 @@
+         options.es_default_int_precision_highp = true;
+         options.enable_420pack_extension = false;
+ 
++        // GLSL ES requires `flat` on integer vertex outputs as well as on the
++        // matching fragment inputs; Vulkan GLSL only asks for it on the latter,
++        // so slang shaders (crt-yah, ntsc-blastem) leave the vertex side bare.
++        let es = matches!(
++            version,
++            spirv_cross2::compile::glsl::GlslVersion::Glsl100Es
++                | spirv_cross2::compile::glsl::GlslVersion::Glsl300Es
++                | spirv_cross2::compile::glsl::GlslVersion::Glsl310Es
++                | spirv_cross2::compile::glsl::GlslVersion::Glsl320Es
++        );
++        // Types that cannot be described (IO block structs have no member
++        // offsets) are left alone: they are not integers either way.
++        fn is_integer(ty: Result<spirv_cross2::reflect::Type<'_>, SpirvCrossError>) -> bool {
++            use spirv_cross2::reflect::{ScalarKind, TypeInner};
++            match ty.map(|ty| ty.inner) {
++                Ok(TypeInner::Scalar(scalar)) | Ok(TypeInner::Vector { scalar, .. }) => {
++                    matches!(scalar.kind, ScalarKind::Int | ScalarKind::Uint)
++                }
++                _ => false,
++            }
++        }
++
+         let vertex_resources = self.vertex.shader_resources()?;
+         let fragment_resources = self.fragment.shader_resources()?;
+ 
++        if es {
++            for res in vertex_resources.resources_for_type(ResourceType::StageOutput)? {
++                if is_integer(self.vertex.type_description(res.base_type_id)) {
++                    self.vertex
++                        .set_decoration(res.id, Decoration::Flat, Some(DecorationValue::Present))?;
++                }
++            }
++            for res in fragment_resources.resources_for_type(ResourceType::StageInput)? {
++                if is_integer(self.fragment.type_description(res.base_type_id)) {
++                    self.fragment
++                        .set_decoration(res.id, Decoration::Flat, Some(DecorationValue::Present))?;
++                }
++            }
++        }
++
+         // Vertex outputs and fragment inputs link by name once the explicit
+         // `layout(location = N)` decoration is stripped. Shaders are free to give
+         // them different identifiers (e.g. `vTexCoord_out` / `vTexCoord_in`),

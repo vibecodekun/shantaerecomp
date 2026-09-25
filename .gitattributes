@@ -1,0 +1,8 @@
+* text=auto
+# Shell scripts also run in WSL and on Linux, where CRLF breaks them.
+*.sh text eol=lf
+tools/linux/AppRun text eol=lf
+tools/linux/shantae.desktop text eol=lf
+# git apply needs the patches byte for byte.
+*.patch -text
+*.png binary

@@ -1,0 +1,30 @@
+# ROMs and boot ROMs are never committed. Bring your own.
+roms/
+bios/
+*.gb
+*.gbc
+*.sav
+*.ips
+
+# Recompiler output (a translation of the ROM), build trees and releases.
+generated/
+dist/
+build/
+logs/
+
+# Fetched or built by the tools/ scripts; only the librashader patches are ours.
+third_party/windows/
+third_party/librashader/*
+!third_party/librashader/patches/
+
+# Local reference checkouts and scratch space.
+SameBoy/
+GhidraBoy/
+Shantae GBC palettes/
+NVIDIA Corporation/
+.claude/
+__pycache__/
+
+# Runtime output that lands next to the exe when run from the tree.
+*.log
+imgui.ini

@@ -1,0 +1,8 @@
+[submodule "gbrecompiled"]
+	path = gbrecompiled
+	url = https://github.com/vibecodekun/gbrecompiled.git
+	branch = shantae
+[submodule "recomp-ui"]
+	path = recomp-ui
+	url = https://github.com/vibecodekun/recomp-ui.git
+	branch = shantae

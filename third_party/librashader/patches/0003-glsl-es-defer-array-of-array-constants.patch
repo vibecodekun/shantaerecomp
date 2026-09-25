@@ -1,0 +1,76 @@
+--- a/librashader-reflect/src/reflect/cross/glsl.rs
++++ b/librashader-reflect/src/reflect/cross/glsl.rs
+@@ -11,6 +11,52 @@
+ 
+ pub(crate) type GlslReflect = CrossReflect<targets::Glsl>;
+ 
++/// ANGLE's D3D backend cannot write a global array-of-arrays initializer: it
++/// emits the element-wise construct call at global scope, and the HLSL fails to
++/// compile at the first draw ("unrecognized identifier
++/// 'angle_construct_into_4_2_float3'"). SPIRV-Cross emits every constant array
++/// as such a global (`const vec3 _407[2][4] = vec3[][](...);`, crt-hyllian,
++/// crt-sony-megatron and others), so declare those without an initializer and
++/// assign them at the top of `main()`. That is what ANGLE itself does with
++/// global initializers it cannot fold.
++fn defer_array_of_array_constants(glsl: String) -> String {
++    const MAIN: &str = "\nvoid main()\n{\n";
++    let mut out = String::with_capacity(glsl.len());
++    let mut assignments = String::new();
++    for line in glsl.split_inclusive('\n') {
++        // Global scope is unindented in SPIRV-Cross output.
++        let declaration = line
++            .strip_prefix("const ")
++            .and_then(|rest| rest.split_once(" = "))
++            .filter(|(lhs, _)| !lhs.contains('(') && lhs.matches('[').count() >= 2);
++        let Some((lhs, init)) = declaration else {
++            out.push_str(line);
++            continue;
++        };
++        let name = lhs[..lhs.find('[').unwrap_or(lhs.len())]
++            .rsplit(' ')
++            .next()
++            .unwrap_or_default();
++        out.push_str(lhs);
++        out.push_str(";\n");
++        assignments.push_str("    ");
++        assignments.push_str(name);
++        assignments.push_str(" = ");
++        assignments.push_str(init.trim_end());
++        assignments.push('\n');
++    }
++    if assignments.is_empty() {
++        return glsl;
++    }
++    match out.find(MAIN) {
++        Some(at) => {
++            out.insert_str(at + MAIN.len(), &assignments);
++            out
++        }
++        None => glsl,
++    }
++}
++
+ impl CompileShader<GLSL> for CrossReflect<targets::Glsl> {
+     type Options = spirv_cross2::compile::glsl::GlslVersion;
+     type Context = CrossGlslContext;
+@@ -208,9 +254,18 @@
+         let vertex_compiled = self.vertex.compile(&options)?;
+         let fragment_compiled = self.fragment.compile(&options)?;
+ 
++        let (vertex, fragment) = if es {
++            (
++                defer_array_of_array_constants(vertex_compiled.to_string()),
++                defer_array_of_array_constants(fragment_compiled.to_string()),
++            )
++        } else {
++            (vertex_compiled.to_string(), fragment_compiled.to_string())
++        };
++
+         Ok(ShaderCompilerOutput {
+-            vertex: vertex_compiled.to_string(),
+-            fragment: fragment_compiled.to_string(),
++            vertex,
++            fragment,
+             context: CrossGlslContext {
+                 sampler_bindings: texture_fixups,
+                 artifact: CompiledProgram {

@@ -1,0 +1,80 @@
+--- a/librashader-runtime-gl/src/gl/gl3/framebuffer.rs
++++ b/librashader-runtime-gl/src/gl/gl3/framebuffer.rs
+@@ -113,8 +113,15 @@
+         }
+ 
+         unsafe {
+-            fb.ctx.bind_framebuffer(glow::FRAMEBUFFER, Some(fb.fbo));
+-
++            // Read through a framebuffer of its own. Blitting between two
++            // attachments of one framebuffer object is rejected by ANGLE
++            // (GL_INVALID_OPERATION, "blit feedback loop"), which left every
++            // history texture black there.
++            let read_fbo = fb
++                .ctx
++                .create_framebuffer()
++                .map_err(FilterChainError::GlError)?;
++            fb.ctx.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(read_fbo));
+             fb.ctx.framebuffer_texture_2d(
+                 glow::READ_FRAMEBUFFER,
+                 glow::COLOR_ATTACHMENT0,
+@@ -122,20 +129,11 @@
+                 image.handle,
+                 0,
+             );
+-            fb.ctx.framebuffer_texture_2d(
+-                glow::DRAW_FRAMEBUFFER,
+-                glow::COLOR_ATTACHMENT1,
+-                glow::TEXTURE_2D,
+-                fb.image,
+-                0,
+-            );
+-
+             fb.ctx.read_buffer(glow::COLOR_ATTACHMENT0);
+ 
+-            // GLES 3.0 does not support `glDrawBuffer`, only `glDrawBuffers`.
+-            // GLES requires that `GL_DRAW_BUFFERi` points to `GL_COLOR_ATTACHMENTi` or `GL_NONE`.
+-            // So we must use `glDrawBuffers` and pad the first entry with `GL_NONE` to write to `GL_COLOR_ATTACHMENT1`.
+-            fb.ctx.draw_buffers(&[glow::NONE, glow::COLOR_ATTACHMENT1]);
++            // `fb.image` is attached at COLOR_ATTACHMENT0 of `fb.fbo` by `init`.
++            fb.ctx.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fb.fbo));
++            fb.ctx.draw_buffers(&[glow::COLOR_ATTACHMENT0]);
+ 
+             fb.ctx.blit_framebuffer(
+                 0,
+@@ -150,32 +148,9 @@
+                 glow::NEAREST,
+             );
+ 
+-            // cleanup after ourselves.
+-            fb.ctx.framebuffer_texture_2d(
+-                glow::READ_FRAMEBUFFER,
+-                glow::COLOR_ATTACHMENT0,
+-                glow::TEXTURE_2D,
+-                None,
+-                0,
+-            );
+-            fb.ctx.framebuffer_texture_2d(
+-                glow::DRAW_FRAMEBUFFER,
+-                glow::COLOR_ATTACHMENT1,
+-                glow::TEXTURE_2D,
+-                None,
+-                0,
+-            );
+-
+-            // set this back to color_attachment 0
+-            fb.ctx.framebuffer_texture_2d(
+-                glow::FRAMEBUFFER,
+-                glow::COLOR_ATTACHMENT0,
+-                glow::TEXTURE_2D,
+-                fb.image,
+-                0,
+-            );
+-
+-            fb.ctx.bind_framebuffer(glow::FRAMEBUFFER, None);
++            fb.ctx.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
++            fb.ctx.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
++            fb.ctx.delete_framebuffer(read_fbo);
+         }
+ 
+         Ok(())

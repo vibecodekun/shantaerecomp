@@ -1,0 +1,54 @@
+--- a/librashader-presets/src/parse/token.rs
++++ b/librashader-presets/src/parse/token.rs
+@@ -107,8 +107,20 @@
+     let (input, (_, value)) = map_res(not_line_ending, optional_quotes).parse(input)?;
+     Ok((input, Token { key, value }))
+ }
++/// A value that opens with a closed quoted string is that string, as in
++/// RetroArch's config parser: `//` and `#` inside the quotes are not comments
++/// (`shader0 = "../..//edge-smoothing/..."`), and anything after the closing
++/// quote is ignored (`float_framebuffer0 = "true""`).
++fn quoted_value(input: Span) -> IResult<Span, Span> {
++    delimited(char('"'), is_not("\""), char('"')).parse(input)
++}
++
+ fn parse_key_value(input: Span) -> IResult<Span, Token> {
+     let (input, (key, _)) = take_up_to(parse_assignment).parse(input)?;
++    let (rest, line) = not_line_ending::<_, nom::error::Error<Span>>(input)?;
++    if let Ok((_, value)) = quoted_value(line) {
++        return Ok((rest, Token { key, value }));
++    }
+     let (input, (_, value)) = map_res(not_line_ending, optional_quotes).parse(input)?;
+     let (_, value) =
+         take_until::<_, _, nom::error::Error<Span>>("//")(value).unwrap_or((input, value));
+@@ -168,7 +180,7 @@
+ 
+ #[cfg(test)]
+ mod test {
+-    use crate::parse::token::single_comment;
++    use crate::parse::token::{do_lex, single_comment};
+ 
+     #[test]
+     fn parses_single_line_comment() {
+@@ -176,4 +188,21 @@
+             single_comment("// Define textures to be used by the different passes\ntetx=n".into());
+         eprintln!("{parsed:?}")
+     }
++
++    #[test]
++    fn quoted_values_end_at_the_closing_quote() {
++        let tokens = do_lex(
++            "shader0 = \"../..//edge-smoothing/a.slang\"\n\
++             float_framebuffer0 = \"true\"\"\n\
++             alias0 = \"a#b\" # comment\n\
++             scale0 = 2.0 // comment\n\
++             wrap_mode0 = \"clamp_to_edge // open quote\n",
++        )
++        .unwrap();
++        let values: Vec<&str> = tokens.iter().map(|t| *t.value.fragment()).collect();
++        assert_eq!(
++            values,
++            ["../..//edge-smoothing/a.slang", "true", "a#b", "2.0 ", "clamp_to_edge "]
++        );
++    }
+ }

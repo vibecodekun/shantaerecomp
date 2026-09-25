@@ -1,0 +1,61 @@
+--- a/librashader-reflect/src/back/glsl.rs
++++ b/librashader-reflect/src/back/glsl.rs
+@@ -17,6 +17,42 @@
+     pub artifact: CompiledProgram<spirv_cross2::targets::Glsl>,
+ }
+ 
++/// Drop `RelaxedPrecision` decorations. SPIRV-Cross's GLSL ES precision
++/// analysis fails with "Cannot resolve expression type" on some mediump code
++/// (simple-crt: `mod()` of a `uint` under `precision mediump float`). Without
++/// the decorations everything runs at the highp default, which GLSL ES always
++/// allows in place of mediump; desktop GLSL output carries no precision.
++fn strip_relaxed_precision(mut compile: SpirvCompilation) -> SpirvCompilation {
++    fn strip(words: &mut Vec<u32>) {
++        const HEADER_WORDS: usize = 5;
++        let relaxed = spirv::Decoration::RelaxedPrecision as u32;
++        let mut out = Vec::with_capacity(words.len());
++        let mut at = HEADER_WORDS.min(words.len());
++        out.extend_from_slice(&words[..at]);
++        while at < words.len() {
++            let count = (words[at] >> 16) as usize;
++            if count == 0 || at + count > words.len() {
++                out.extend_from_slice(&words[at..]);
++                break;
++            }
++            let inst = &words[at..at + count];
++            let opcode = inst[0] & 0xffff;
++            let decorates_relaxed = (opcode == spirv::Op::Decorate as u32
++                && count == 3
++                && inst[2] == relaxed)
++                || (opcode == spirv::Op::MemberDecorate as u32 && count == 4 && inst[3] == relaxed);
++            if !decorates_relaxed {
++                out.extend_from_slice(inst);
++            }
++            at += count;
++        }
++        *words = out;
++    }
++    strip(&mut compile.vertex);
++    strip(&mut compile.fragment);
++    compile
++}
++
+ #[cfg(feature = "nightly")]
+ impl FromCompilation<SpirvCompilation, SpirvCross> for GLSL {
+     type Target = GLSL;
+@@ -27,6 +63,7 @@
+     fn from_compilation(
+         compile: SpirvCompilation,
+     ) -> Result<CompilerBackend<Self::Output>, ShaderReflectError> {
++        let compile = strip_relaxed_precision(compile);
+         Ok(CompilerBackend {
+             backend: GlslReflect::try_from(&compile)?,
+         })
+@@ -43,6 +80,7 @@
+     fn from_compilation(
+         compile: SpirvCompilation,
+     ) -> Result<CompilerBackend<Self::Output>, ShaderReflectError> {
++        let compile = strip_relaxed_precision(compile);
+         Ok(CompilerBackend {
+             backend: Box::new(GlslReflect::try_from(&compile)?),
+         })
