@@ -70,6 +70,7 @@ def main():
         "unknown_writable_code": "fatal diagnostic; not counted as covered",
     }
     path = ROOT / "logs/ram-coverage.json"
+    path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(report, indent=2) + "\n")
     print(f"PASS: {len(writers)} verified ROM writer regions, {len(found)} classified C3 stores, {len(slots)} JP slots, 6 DMA entries")
     print("Scope: identified RAM programs; not a formal proof of all writable-memory reachability.")

@@ -83,6 +83,7 @@ def main():
         "scope": "Every-byte conservative native coverage, including data; not a semantic code/data classification or whole-game playthrough.",
         "windows": per_bank,
     }
+    (ROOT / "logs").mkdir(exist_ok=True)
     (ROOT / "logs/whole-rom-coverage.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"PASS: {banks} banks, {report['normal_and_halt_bug_slots']:,} dispatch slots; no missing entries or interpreter calls")
 
