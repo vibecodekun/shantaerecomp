@@ -282,7 +282,7 @@ safely and does not disable the expanded view.
   became dead ends. At 1920×1080 the water tower's room wanted about 130, so
   the drop that becomes its mini-boss (object 0A:4070) found none. With the
   view on, the table has 157 slots (`object_slots.c`), as many as 16-bit
-  addresses leave room for. While SVBK selects bank 3, two windows are memory
+  addresses leave room for; towns keep the original 32 (see Towns below). While SVBK selects bank 3, two windows are memory
   of the table's own (the runtime's WRAM extension):
   - E000–FDC5 instead of the echo of C000, which only the map decoder reads,
     with SVBK 1: slots 32–92 continue from D000 (slot 32 starts at DFC0, a
@@ -432,17 +432,38 @@ safely and does not disable the expanded view.
   the wider activation, so nothing despawns while talking; a room that is never
   presented expanded keeps the original activation throughout. New camera bounds
   within the same map do not reset it.
-- Towns are such rooms: the building-name panel keeps the window up, so the
-  picture stays native. Their activation must stay native too. The town player
-  (04:62CC) stays at screen x 84, and the camera wraps at 640 (04:641E/04:6474)
-  past the room's own maximum (C9DD = 480 in Water Town). Objects near the seam
-  have spawn-record duplicates at +640 (the Firefly Shrine door at 56 and 695).
-  The clamped wide window missed the duplicates, so the Firefly Shrine door
-  never existed after the wrap. The door handler (04:60B8) also compares only
-  the low byte of the player/door distance (04:60E0 `CP $10` then `SBC A,D` with
-  A = D). The original 320-pixel retention never keeps a door 256±16 pixels away
-  alive, but the wide one did, and such a door took over the label and the Up
-  entrance. That is an original-game quirk, left as is.
+- Towns keep the original picture, activation and object table. The town
+  player (04:62CC) stays at screen x 84, and the camera wraps at 640
+  (04:641E/04:6474) past the room's own maximum (C9DD = 480). Objects near the
+  seam have spawn-record duplicates at +640 (the Firefly Shrine door at 56 and
+  695). The clamped wide window missed the duplicates, so the Firefly Shrine
+  door never existed after the wrap. The door handler (04:60B8) also compares
+  only the low byte of the player/door distance (04:60E0 `CP $10` then
+  `SBC A,D` with A = D): within 16 pixels the door's label shows (CBD6) and Up
+  enters (the player's routine becomes 04:6584). The original 320-pixel
+  retention never keeps a door 256±16 pixels away alive, but the wide one did,
+  and such a door took over the label and the Up entrance. That is an
+  original-game quirk, left as is.
+
+  All five towns are one map, 67:9B, strips 640 wide at y 0, 768, 1120, 1376
+  and 1632, loaded by 18:5C3D, 18:5FEA, 18:638B, 18:6738 and 18:6AD5 with the
+  camera's x from 0 to 480 and its y pinned; no other of the ROM's 112 room
+  loads or 21 bounds changes gives those bounds. A town is that room
+  (`town_room`), not the building-name panel: the panel is not up on every
+  frame (a state load shows two frames with only the status bar), and one frame
+  presented expanded marked the whole map widened. The shops and houses share
+  the map (18:71F2, 1F:4303, 1F:5111 and others, x from 248 and y 336-624), so
+  leaving one that had been presented expanded widened the town too; with
+  that, the user's state1 in Water Town (2026-09-26) found the Firefly Shrine's
+  label empty and Up did nothing. A town is never presented expanded, never
+  activated wider, and its map load builds the original 32 slots and 12
+  collision nodes (object_slots.c): the grown table's own work (the scripts
+  pass counting 157, the build counting 93) takes guest time, and the main
+  loop spends what is left of each frame calling the random numbers (00:0852
+  calls 00:0B13 into C381/C382 until the VBlank), so the townsfolk chose
+  differently than in the original. A town state saved with the grown table
+  goes back to it on load while nothing lives past slot 31 (`town_tables` in
+  `shantae_view_info`, `town` for the room).
 
 - Scene gate: menus reuse the map engine state. The inventory keeps C9F8–C9FA
   and the room bounds, zeroes both cameras, and replaces the tilemap and tile
@@ -592,9 +613,47 @@ list). `logs/states/warp-cut.state` (scene 0A, map 5E8F, floated) is about
 (one of them drawn) appeared inside the picture over the next frames; now
 `fills` goes up by one there and none do.
 The user's earlier slots are gone: the
-platform room that lagged at 426 wide (`--enemy` needs it) and the Water Town
-gates used by the town check (`check_town_parity.py` on `--native` and
-expanded captures of a town route) need new states.
+platform room that lagged at 426 wide (`--enemy` needs it) needs a new state.
+
+Towns (`logs/states/debug-grid.state` is the user's state2 on 2026-09-26: the
+debug scene grid with the cursor on row N, whose first five columns are the
+towns). `tools/check_towns.py` loads each, walks its loop without the view to
+find the doors (where each label shows), and plays in an expanded and an
+original instance side by side the whole loop both ways, walking and running,
+and for every door a walk there, Up, 240 frames inside, and a walk left (the
+way out of the Firefly Shrine; a building whose way out is elsewhere keeps
+Shantae inside). Until the town is left, every frame's picture, OAM, HRAM,
+WRAM C000-CEFF (the stack below CFFF holds stale frames) and live object slots
+must be identical; the town must never be presented or activated expanded,
+nor keep more than 32 slots past its map load. Both must leave the town on the
+same frame. A shop or house is a room the view presents, with the grown
+table, so its frames take other time and draw other random numbers: from there
+the two must go through the same rooms at the same cameras (a load may end a
+frame apart) and end in the same room, camera and door label. Remove slowdown
+is off in both, since the view lets a screen load hold for up to eight frames
+instead of two, which only moves the frame a load ends on. At 1920×1080
+(Fill, in a 1920×1080 Aspect Fit window) all 44 routes pass: the 10 loops are
+identical throughout, and each of the 34 doors (7 in Scuttle Town, Water
+Town, Oasis Town and Bandit Town, 6 in the Zombie Caravan) is identical up to
+the frame both leave the town, for the same room. Walking left brings Shantae
+back out of 27 of them, to the same spot with the door's label; the other 7
+are the five gates, which lead out of town, and two buildings whose way out
+is elsewhere. Values held for less than three frames are left out of the
+rooms compared: a frame that ends in the middle of a load, or of the camera
+routine in a lag frame, shows a camera half set (the gate out of Water Town
+reads 4252 for one frame in the level while the picture stays at 4191).
+
+```powershell
+python tools/check_towns.py                      # all five, 1920x1080; --towns 1 for Water Town
+```
+
+`logs/states/water-town.state` (the user's state1 on 2026-09-26, in Water Town
+at camera x 235, saved with the grown table and the map marked widened) is
+the Firefly Shrine report: the shrine's door is at x 40-70 (its duplicate at
++640 past the wrap), 270 frames of Left from the load. Loaded, it gets the
+original table back (`town_tables` 1); with Up the two enter the shrine on
+frame 460, and walking left takes both back to camera 606 with the shrine's
+label. Before, the label stayed empty and Up did nothing.
 
 The replay tool uses isolated settings/saves and never modifies the input states.
 It captures PNGs, memory snapshots and a timeline. `--width 426 --height 270`
@@ -603,9 +662,7 @@ checks another size (pass the same options to `check_expanded_replays.py`);
 expanded presentation, the requested PNG dimensions (with `--room-zoom`, the
 zoomed picture's, within them; 160×144 for `--one-screen`), a surround camera equal to
 the scroll the native frame started with (`scx`/`scy` in `shantae_view_info`:
-no seam), and exact background-tile agreement in the native overlap. The town
-check requires identical guest WRAM, HRAM and OAM at every full capture, with
-the town never presented or activated expanded.
+no seam), and exact background-tile agreement in the native overlap.
 
 The debug server's `window` command resizes the window (or, under
 `--benchmark`, the windowed size the view resolves against) and sets the
@@ -629,7 +686,9 @@ frame bounds and status-bar placement at sizes from 160×144 to 3840×2160 and
 8192×1024, the map gate (matching tilemap, tiles
 covered by background objects, replaced tilemap, zeroed camera), activation
 that widens only after a room is presented (kept under a dialogue box, reset by
-a new room, never under a town's name panel), the committed camera on a lag
+a new room; never in a town, with or without its name panel, even after a
+shop in the same map was presented, and not in another room of the town map
+pinned otherwise), the committed camera on a lag
 frame, a background offset (sprites at the camera, background identical to the
 same scroll without an offset), one-screen rooms (native picture and
 activation), small rooms centered with sprites clipped to the room, top-line
@@ -667,7 +726,11 @@ gives it back, freeing the nodes on either side of E000 and then E000 keeps
 the lists whole, the pool check puts a live object's lost node back in use
 and a nameless one on the free list (and waits while the inventory has the
 table), and states saved before the table or the pool grew get the extra
-slots and nodes at the end of their free lists (or as all of them).
+slots and nodes at the end of their free lists (or as all of them). A town's
+map load builds 32 slots and 12 nodes with the view on (a shop in the same
+map the grown ones), and a town state saved with the grown table gets them
+back, its free lists in their order, unless a slot past 31 is live or a node
+past the 12 in use.
 
 The replay paths above refer to the user's local regression states. They are
 not distributed fixtures. These checks do not establish correctness in every

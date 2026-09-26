@@ -13,13 +13,26 @@ static int clamp(int value, int lo, int hi) {
 
 /* Activation widens only in a room (map directory C9F8-C9FA) the view has
  * presented expanded, so enemies never start early where nothing shows them.
- * Towns keep their building-name panel up and stay native: their camera also
- * wraps at 640 (04:6469, 04:64A3) past the room bounds, with spawn-record
- * duplicates at +640 near the seam, and the door test (04:60E0) compares only
- * the low byte of the distance, so wider retention there lets a door 256 pixels
- * away take over the label and the entrance. */
+ * Towns stay native (town_room below). */
 static int widened;
 static uint8_t widened_room[3];
+
+/* Towns keep the original picture and activation. Their camera wraps at 640
+ * (04:6469, 04:64A3) past the room bounds, with spawn-record duplicates at +640
+ * near the seam, and the door test (04:60E0) compares only the low byte of the
+ * distance, so wider retention there lets a door 256 pixels away take over the
+ * label and the entrance (the Firefly Shrine's in Water Town). All five are
+ * one map, 67:9B, strips loaded by 18:5C3D, 18:5FEA, 18:638B, 18:6738 and
+ * 18:6AD5 with the camera's x from 0 to 480 and its y pinned; no other room
+ * load or bounds change gives those bounds. The shops and houses share the map,
+ * so a town can't go by the map alone, and the building-name panel is not up on
+ * every frame (a state load shows two frames without it), so it can't go by
+ * the window either: one frame presented expanded widened the whole map. A
+ * town's map load also builds the original object table (object_slots.c). */
+static int town_room(const uint8_t *ram) {
+    return ram[0x9f9] == 0x67 && ram[0x9fa] == 0x9b && word(ram + 0x9db) == 0 && word(ram + 0x9dd) == 480 &&
+           word(ram + 0x9df) == word(ram + 0x9e1);
+}
 
 /* Rooms. A scene scrolls the camera through C9DB-C9E2 (03:7920, and the
  * bounds-only 03:7A3D / 03:7AFE; greatest = least + span - 1); with the
@@ -244,7 +257,7 @@ static int room_fits_screen(const Room *room) {
     return room->box.x1 - room->box.x0 <= 160 && room->box.y1 - room->box.y0 <= 144;
 }
 static int activation_widened(const GBContext *ctx) {
-    if (!widened || memcmp(ctx->wram + 0x9f8, widened_room, sizeof(widened_room))) return 0;
+    if (!widened || memcmp(ctx->wram + 0x9f8, widened_room, sizeof(widened_room)) || town_room(ctx->wram)) return 0;
     const Room room = live_room(ctx);
     return !room_fits_screen(&room);
 }

@@ -26,7 +26,7 @@ the launcher verifies it.
 | `dispatch_misses.toml` | Runtime-harvested entry points (Tier-0), auto-ingested by the recompiler |
 | `extras.c` | Shantae game hooks: hardware mode (GBA Enhanced on/off), palette override, `shantae.ini` settings |
 | `expanded_view.c`, `expanded_background.inc` | Expanded world compositor, live background objects, and wider object activation |
-| `object_slots.c` | With the expanded view, the object table grown from 32 slots to 157 (past DFFF and at A000 in bank 3) and the collision node pool from 12 to one per slot |
+| `object_slots.c` | With the expanded view, the object table grown from 32 slots to 157 (past DFFF and at A000 in bank 3) and the collision node pool from 12 to one per slot (towns keep the original 32 and 12) |
 | `ram_native.c` | Native translations of writable JP vectors and the copied DMA routine |
 | `launcher_options.c` | Built-in GBA and expanded-view features on the launcher's Mods page |
 | `extras_ui.cpp` | In-game Shantae settings, including expanded-view size |
@@ -40,6 +40,7 @@ the launcher verifies it.
 | `tools/audit_native_coverage.py` | Check discovered native script targets and banked inline returns against emitted metadata |
 | `tools/test_annotations.py`, `tools/native_dispatch_check.c` | Discovery regressions and compiled-dispatch differential checks |
 | `tools/expanded_view_check.c`, `tools/object_slots_check.c` | Expanded-view compositor checks; the grown object table through the game's own routines |
+| `tools/check_towns.py` | Every town with the expanded view against the original, frame for frame, from a debug-grid state |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
@@ -150,11 +151,20 @@ refill it, as RetroArch runs one. Saved as `emulation.preemptive_frames` in
 Settings are saved to `shantae.ini` next to the exe. `expanded_view=1`,
 `view_width=256` and `view_height=240` select the NES-size view; `remove_slowdown=0`
 brings the slowdown back and `reduce_input_lag=0` the original input timing. Menus and dialogue retain their original centered layout.
-Towns keep the original picture and object activation (their building-name panel
-covers the bottom, and their camera wraps at 640 pixels), and so do rooms whose
-camera is pinned to one screen, such as the first boss's arena. Rooms narrower or
-shorter than the view (Risky's ship in the opening) are centered. This is experimental: the three saved-state regressions and the
-opening area have been checked, not a full playthrough.
+Towns keep the original picture, object activation and 32-slot object table
+(their building-name panel covers the bottom, their camera wraps at 640 pixels,
+and their doors are found by the low byte of the distance), so every door, label
+and entrance is where the original has it. `tools/check_towns.py` checks all five
+(Scuttle Town, Water Town, Oasis Town, the Zombie Caravan and Bandit Town, the
+debug grid's N row) against the original: walking and running round each town
+plays frame for frame the same, and every door shows its label, opens on the
+same frame and leads to the same room (and, walking back out, to the same
+spot). Rooms whose
+camera is pinned to one screen, such as the first boss's arena, keep the
+original picture and activation too. Rooms narrower or shorter than the view
+(Risky's ship in the opening) are centered. This is experimental: the
+saved-state regressions, the towns and the opening area have been checked, not
+a full playthrough.
 
 The expanded view draws the ROM world map plus the game's current background
 objects and metasprites, positioned with the scroll the game actually committed
@@ -164,7 +174,7 @@ drawn in the background add to the scroll. It uses world coordinates so moving/c
 does not leave stale tiles when the camera reverses. In rooms shown expanded,
 enemies activate and remain active across the larger area; their behavior can
 therefore begin earlier than in the original game. To hold them, the game's
-object table has 157 slots instead of 32 while the view is on (as many as 16-bit
+object table has 157 slots instead of 32 while the view is on, towns aside (as many as 16-bit
 addresses leave room for; the water tower's rooms at 1920×1080 want about 130),
 and the collision pool that platforms and hazards take from has a node for every
 slot instead of 12. Encounters that start the moment they exist (the water

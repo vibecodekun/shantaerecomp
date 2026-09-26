@@ -291,8 +291,8 @@ int main(void) {
     snapshot(ctx);
     CHECK(ready && map_checked == 19 * 18 && map_matched == map_checked);
 
-    /* Activation widens only in a room already presented expanded. A town's
-     * building-name panel (window from line 112) keeps it native. */
+    /* Activation widens only in a room already presented expanded. A window
+     * above the status bar (a dialogue box from line 112) is not presented. */
     put16(ctx->hram + 0x61, 516); put16(ctx->hram + 0x63, 264);
     reset_view(ctx);
     lcdc = ppu->lcdc = 0xa1; ppu->wx = 7; ppu->wy = 112;
@@ -375,6 +375,53 @@ int main(void) {
     ctx->pc = 0x11d7; CHECK(read_override(ctx, 0xffb7, 0x12) == 0x12);
     put16(ctx->wram + 0x9dd, 8032); put16(ctx->wram + 0x9e1, 8048);
     CHECK(read_override(ctx, 0xffb7, 0x12) != 0x12);
+
+    /* Towns (map 67:9B, camera x 0-480, y pinned) keep the original picture
+     * and activation, with no window up (the building-name panel is missing
+     * for two frames after a state load) and after the map was presented
+     * expanded (the shops share it). The shops' bounds widen as before. The
+     * test map's directory is copied to 67:9B, so the town is one the view
+     * would otherwise present. */
+    rom = realloc(rom, 0x9c * 0x4000);
+    CHECK(rom);
+    memset(rom + 0x8000, 0, 0x9a * 0x4000);
+    memcpy(rom + 0x9b * 0x4000 + 0x2700, rom + 0x4000, 0x800);
+    ctx->rom = rom; ctx->rom_size = 0x9c * 0x4000;
+    put16(ctx->wram + 0x9d2, 0); put16(ctx->wram + 0x9d4, 0);
+    put16(ctx->wram + 0x9fb, 516); put16(ctx->wram + 0x9fd, 264);
+    put16(ctx->hram + 0x61, 516); put16(ctx->hram + 0x63, 264);
+    ppu->lcdc = 0x81; ppu->wy = 144;
+    reset_view(ctx);
+    ctx->wram[0x9f9] = 0x67; ctx->wram[0x9fa] = 0x9b;
+    put16(ctx->wram + 0x9db, 400); put16(ctx->wram + 0x9dd, 831);
+    put16(ctx->wram + 0x9df, 264); put16(ctx->wram + 0x9e1, 264);
+    snapshot(ctx);
+    CHECK(ready && widened);
+    ctx->pc = 0x11d7; CHECK(read_override(ctx, 0xffb7, 0x12) != 0x12);
+    /* Leaving the shop for the town keeps the map (and `widened`). */
+    put16(ctx->wram + 0x9db, 0); put16(ctx->wram + 0x9dd, 480);
+    CHECK(widened && !memcmp(widened_room, ctx->wram + 0x9f8, sizeof(widened_room)));
+    ctx->pc = 0x11d7; CHECK(read_override(ctx, 0xffb7, 0x12) == 0x12);
+    ctx->pc = 0x0fd0; CHECK(read_override(ctx, 0xffc5, 0x34) == 0x34);
+    ctx->pc = 0x1130; CHECK(read_override(ctx, 0xffc6, 0x02) == 0x02);
+    snapshot(ctx);
+    CHECK(!ready && widened && map_checked == 0);
+    CHECK(!render(ctx, out + 1, 256, native));
+    /* The town engine's camera passes C9DD on its way round (604 in Water
+     * Town, wrapping at 640): the same town. */
+    put16(ctx->wram + 0x9fb, 604); put16(ctx->hram + 0x61, 604);
+    snapshot(ctx);
+    CHECK(!ready);
+    ctx->pc = 0x11d7; CHECK(read_override(ctx, 0xffb7, 0x12) == 0x12);
+    /* Only those bounds: a room of that map pinned otherwise is not a town. */
+    put16(ctx->wram + 0x9fb, 516); put16(ctx->hram + 0x61, 516);
+    put16(ctx->wram + 0x9dd, 481);
+    snapshot(ctx);
+    CHECK(ready);
+    ctx->pc = 0x11d7; CHECK(read_override(ctx, 0xffb7, 0x12) != 0x12);
+    ctx->rom_size = 0x8000;
+    ctx->wram[0x9f9] = 0x40; ctx->wram[0x9fa] = 1;
+    put16(ctx->wram + 0x9dd, 8032); put16(ctx->wram + 0x9e1, 8048);
     put16(ctx->wram + 0x9db, 0); put16(ctx->wram + 0x9df, 0);
     put16(ctx->wram + 0x9d2, 0); put16(ctx->wram + 0x9d4, 0);
     put16(ctx->wram + 0x9fb, 516); put16(ctx->wram + 0x9fd, 264);

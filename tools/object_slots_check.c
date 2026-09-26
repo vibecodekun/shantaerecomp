@@ -70,6 +70,17 @@ static void fresh(int extended) {
     set_svbk(3);
 }
 
+/* The room 03:7920 sets up: map directory C9F9/C9FA, camera range C9DB-C9E2. */
+static void set_room(unsigned page, unsigned bank, unsigned x0, unsigned x1, unsigned y0, unsigned y1) {
+    const unsigned bounds[4] = {x0, x1, y0, y1};
+    ctx->wram[0x9F9] = (uint8_t)page;
+    ctx->wram[0x9FA] = (uint8_t)bank;
+    for (int i = 0; i < 4; ++i) {
+        ctx->wram[0x9DB + 2 * i] = (uint8_t)bounds[i];
+        ctx->wram[0x9DC + 2 * i] = (uint8_t)(bounds[i] >> 8);
+    }
+}
+
 static int free_count(void) {
     int n = 0;
     for (unsigned p = ctx->hram[0x33] | ctx->hram[0x34] << 8; p && n <= SHANTAE_MAX_SLOTS; ++n)
@@ -718,11 +729,58 @@ int main(int argc, char **argv) {
     shantae_slots_state_loaded(ctx);
     CHECK(shantae_slot_count(ctx) == 32 && ctx->wram_ext_mapped == 0 && ctx->wram_ext_cart_mapped == 0);
 
+    /* Towns (map 67:9B, camera x 0-480, y pinned) build the original table
+     * and pool with the view on; a shop in the same map builds the grown ones. */
+    fresh(1);
+    set_room(0x67, 0x9B, 0, 480, 780, 780);
+    call(1, 0x4CB6);
+    call(1, 0x7120);
+    CHECK(shantae_slot_count(ctx) == 32 && free_count() == 32 && gb_read16(ctx, SLOT(31) + 0x7C) == 0);
+    CHECK(ctx->wram_ext_mapped == 0 && ctx->wram_ext_cart_mapped == 0 && ctx->wram_ext_mapped2 == 0);
+    CHECK(shantae_slots_imm(ctx, 0, 0x1312, 0x20) == 0x20);
+    CHECK(free_nodes(&last) == 12 && last == 0xDD40 + 11 * 0x13);
+    for (int shrink = 0; shrink < 3; ++shrink) {
+        set_room(0x67, 0x9B, 672, 831, 360, 360);
+        call(1, 0x4CB6);
+        call(1, 0x7120);
+        CHECK(shantae_slot_count(ctx) == SHANTAE_MAX_SLOTS && free_nodes(&last) == 12 + SHANTAE_MAX_SLOTS);
+        /* A town state from the build before: slots 0-9 live but 7 and 2,
+         * freed in that order, three nodes in use (a fourth past the 12 with
+         * shrink 2) and a slot past 31 live with shrink 1. */
+        for (int i = 0; i < 10; ++i) set_slot8(i, 0, i == 2 || i == 7 ? 0xFF : 0x00);
+        ctx->hram[0x33] = SLOT(7) & 255;
+        ctx->hram[0x34] = SLOT(7) >> 8;
+        set_slot16(7, 0x7C, SLOT(2));
+        set_slot16(2, 0x7C, SLOT(10));
+        for (int i = 1; i <= 3; ++i) alloc_node(i);
+        if (shrink == 1) {
+            set_slot8(40, 0, 0x00);
+            set_slot16(39, 0x7C, SLOT(41));
+        }
+        if (shrink == 2)
+            for (int i = 4; i <= 13; ++i) alloc_node(i);
+        set_room(0x67, 0x9B, 0, 480, 780, 780);
+        shantae_slots_counts(&before);
+        shantae_slots_state_loaded(ctx);
+        shantae_slots_counts(&after);
+        if (shrink) {
+            CHECK(shantae_slot_count(ctx) == SHANTAE_MAX_SLOTS && after.town_tables == before.town_tables);
+            continue;
+        }
+        CHECK(after.town_tables == before.town_tables + 1 && shantae_slot_count(ctx) == 32);
+        CHECK(ctx->wram_ext_mapped == 0 && ctx->wram_ext_cart_mapped == 0 && ctx->wram_ext_mapped2 == 0);
+        CHECK((ctx->hram[0x33] | ctx->hram[0x34] << 8) == SLOT(7) && slot16(7, 0x7C) == SLOT(2) &&
+              slot16(2, 0x7C) == SLOT(10) && slot16(31, 0x7C) == 0 && free_count() == 24);
+        CHECK(free_nodes(&last) == 9 && last == 0xDD40 + 11 * 0x13);
+        CHECK(shantae_slots_imm(ctx, 0, 0x1312, 0x20) == 0x20);
+    }
+
     puts("Object slots: 32 without the view, 157 with it; E000 and A000 only in bank 3; slot jumps past DFFF "
          "and at A000; movement, scripts, draw layering and drawing of the extra slots; inventory copy; "
          "save and load through cartridge RAM; orphaned gate parts; damaged free lists mended; 0A:42F8's "
          "child freed at its own address; collision nodes past the 12 (built, "
          "handed out, landed on, freed, beside E000 too, 09:480D's clear on its object); damaged node lists "
-         "mended; repeated platform spawns/removals, slot pressure and saved clones; older states passed.");
+         "mended; repeated platform spawns/removals, slot pressure and saved clones; older states; towns' "
+         "original table and pool, and older town states given them back passed.");
     return 0;
 }

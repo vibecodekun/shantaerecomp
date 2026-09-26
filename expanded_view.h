@@ -13,6 +13,9 @@ void shantae_input_lag_counts(unsigned long long *fresh, unsigned long long *ori
 /* Addresses the dispatcher offers (ram_native.c): 00:1143, where the object
  * spawner fills an area the view has just revealed. 1 when it redirected. */
 int shantae_view_dispatch(struct GBContext *ctx, uint16_t addr);
+/* Whether the room in guest RAM is a town, which keeps the original picture,
+ * activation and object table (expanded_background.inc). */
+int shantae_view_town(const struct GBContext *ctx);
 /* The view's state for rollback (preemptive frames); see gb_game_state. */
 size_t shantae_view_state_size(void);
 void shantae_view_state_save(void *out);

@@ -19,7 +19,8 @@ static inline unsigned shantae_slot_addr(int slot) {
 }
 
 /* Give the context the memory past bank 3, and choose the size of the tables
- * map loads build from now on: SHANTAE_MAX_SLOTS when `extended`, else 32. */
+ * map loads build from now on: SHANTAE_MAX_SLOTS when `extended` (32 in
+ * towns), else 32. */
 void shantae_slots_init(struct GBContext *ctx, int extended);
 /* Slots in the table the game is using: 32, SHANTAE_MAX_SLOTS, or 93 in a
  * state from the build that stopped there, until the next map load. */
@@ -41,17 +42,19 @@ int shantae_slots_dispatch(struct GBContext *ctx, uint16_t addr);
 void shantae_slots_read_tap(struct GBContext *ctx, uint16_t addr);
 uint8_t shantae_slots_read_override(struct GBContext *ctx, uint16_t addr, uint8_t value);
 /* After any state load: a state from before the table grew gets its extra
- * slots, one from before the collision pool grew its extra nodes, and the
- * mappings follow the table the state holds. */
+ * slots, one from before the collision pool grew its extra nodes, one saved
+ * in a town with them goes back to 32 slots and 12 nodes (while nothing lives
+ * past them), and the mappings follow the table the state holds. */
 void shantae_slots_state_loaded(struct GBContext *ctx);
 
 /* Debug counts since launch (shantae_view_info): extra slots moved, layered
  * and drawn, states given the extra slots, orphaned gate parts freed, pools
  * built with the extra collision nodes, states given them, nodes the pool
- * check put back on a list, free lists the slot check mended, and children
- * 0A:42F8 freed at the right address. */
+ * check put back on a list, free lists the slot check mended, children
+ * 0A:42F8 freed at the right address, and town states given back the
+ * original table. */
 typedef struct {
     unsigned long long moves, layered, drawn, upgrades, reaped, node_pools, node_upgrades, node_repairs,
-        slot_repairs, children_freed;
+        slot_repairs, children_freed, town_tables;
 } ShantaeSlotCounts;
 void shantae_slots_counts(ShantaeSlotCounts *out);

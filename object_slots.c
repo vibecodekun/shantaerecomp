@@ -90,12 +90,22 @@
  * live slot is cut there, and the dead slots it does not hold go on its end,
  * which mends states saved with such damage.
  *
+ * Towns keep the original table and pool. They keep the original activation
+ * (expanded_view.c), so they never want more than 32 slots, and the grown
+ * table's own work still takes guest time: the scripts pass counting 157 and
+ * the build counting 93. The main loop spends what is left of each frame
+ * calling the random numbers (00:0852 calls 00:0B13 until the VBlank), so
+ * with less left over the townsfolk chose differently than in the original.
+ *
  * What must survive a save state is kept in the extension's memory past the
  * windows, which save states include. A state from before the table grew
  * gets the extra slots at the end of its free list, and one from before the
- * pool grew the extra nodes at the end of the pool's.
+ * pool grew the extra nodes at the end of the pool's. One saved in a town by
+ * a build before towns kept the original table goes back to 32 slots and 12
+ * nodes, unless something lives past them.
  */
 #include "object_slots.h"
+#include "expanded_view.h"
 #include "gbrt.h"
 #include "gb_custom_view.h"
 
@@ -289,15 +299,16 @@ static void add_free_slots(GBContext *ctx, int from) {
 
 /* 01:4CD1, LD A,$20: 01:4CB6 has cleared D000-DFBF and builds the free list
  * over this many slots from D000, the rest of a grown table waiting at A000
- * for 01:4CFE. */
+ * for 01:4CFE. A town's room is set up before its map load. */
 static uint8_t build_table(GBContext *ctx, SlotState *s) {
     const int was_extended = s->slots > SHANTAE_ORIGINAL_SLOTS;
-    reset_passes(s, s_extended ? SHANTAE_MAX_SLOTS : SHANTAE_ORIGINAL_SLOTS);
+    const int extended = s_extended && !shantae_view_town(ctx);
+    reset_passes(s, extended ? SHANTAE_MAX_SLOTS : SHANTAE_ORIGINAL_SLOTS);
     memset(ctx->wram_ext, 0, PRIVATE_OFFSET);
-    if (s_extended || was_extended) memset(ctx->wram + 0x3000 + (TAIL - 0xD000), 0, 0xE000 - TAIL);
-    if (s_extended) add_free_slots(ctx, SHANTAE_ECHO_SLOTS);
+    if (extended || was_extended) memset(ctx->wram + 0x3000 + (TAIL - 0xD000), 0, 0xE000 - TAIL);
+    if (extended) add_free_slots(ctx, SHANTAE_ECHO_SLOTS);
     sync(ctx);
-    return s_extended ? SHANTAE_ECHO_SLOTS : SHANTAE_ORIGINAL_SLOTS;
+    return extended ? SHANTAE_ECHO_SLOTS : SHANTAE_ORIGINAL_SLOTS;
 }
 
 /* A table built before this layout (32 slots, or 93 by the build before):
@@ -351,16 +362,17 @@ static void add_free_nodes(GBContext *ctx, SlotState *s) {
 }
 
 /* 01:7186, LD A,$40: 01:711E has built the pool's free list and ended it at
- * its last node; with the view it goes on to the extra nodes. Only a room
- * load (01:4CA3) builds a pool; the inventory builds its table alone
- * (00:0C26). One while the inventory's copy is kept means the inventory was
- * left without 05:6D20, through the debug grid (05:5A43): the copy never
- * comes back, and the checks that wait for it (check_slots, check_nodes, the
- * reapers) would stay off in every room after. */
+ * its last node; with the grown table (built just before it) it goes on to
+ * the extra nodes. Only a room load (01:4CA3) builds a pool; the inventory
+ * builds its table alone (00:0C26). One while the inventory's copy is kept
+ * means the inventory was left without 05:6D20, through the debug grid
+ * (05:5A43): the copy never comes back, and the checks that wait for it
+ * (check_slots, check_nodes, the reapers) would stay off in every room
+ * after. */
 static void build_nodes(GBContext *ctx, SlotState *s) {
     s->backup_slots = 0;
     s->nodes = 0;
-    if (s_extended) {
+    if (s_extended && s->slots > SHANTAE_ORIGINAL_SLOTS) {
         add_free_nodes(ctx, s);
         set_node_word(ctx, NODE_LAST_NEXT, NODE_EXT_BASE);
         s_counts.node_pools++;
@@ -391,6 +403,68 @@ static void upgrade_nodes(GBContext *ctx, SlotState *s) {
     }
 }
 
+static int extra_live(GBContext *ctx);
+static int node_index(unsigned addr);
+static int mark_nodes(GBContext *ctx, unsigned head, uint8_t *marks, uint8_t mark);
+
+/* Unlinks the entries from `first` on (by index) from a whole free list, the
+ * others kept in their order: the slots' (HRAM `head` FFB3, through +$7C) or,
+ * with `nodes`, the pool's (FFEA, through +$10). */
+static void drop_from_list(GBContext *ctx, unsigned head, int first, int nodes) {
+    unsigned last = 0, at = ctx->hram[head] | ctx->hram[head + 1] << 8;
+    ctx->hram[head] = ctx->hram[head + 1] = 0;
+    while (at) {
+        const int i = nodes ? node_index(at) : shantae_slot_index(ctx, at);
+        const unsigned next = nodes ? node_word(ctx, at + 0x10) : slot_word(ctx, i, 0x7C);
+        if (i < first) {
+            if (!last) {
+                ctx->hram[head] = (uint8_t)at;
+                ctx->hram[head + 1] = (uint8_t)(at >> 8);
+            } else if (nodes) {
+                set_node_word(ctx, last + 0x10, at);
+            } else {
+                set_slot_word(ctx, shantae_slot_index(ctx, last), 0x7C, at);
+            }
+            last = at;
+        }
+        at = next;
+    }
+    if (last && nodes) set_node_word(ctx, last + 0x10, 0);
+    else if (last) set_slot_word(ctx, shantae_slot_index(ctx, last), 0x7C, 0);
+}
+
+/* A town saved with the grown table (by a build before towns kept the
+ * original one): nothing lives past slot 31 there, so the free list drops the
+ * slots past it and the pool's free list its extra nodes, each in its order.
+ * Left as it is when something does live past them, or a list is broken
+ * (check_slots and check_nodes mend those). */
+static void shrink_town(GBContext *ctx, SlotState *s) {
+    if (s->slots <= SHANTAE_ORIGINAL_SLOTS || s->backup_slots || !shantae_view_town(ctx) || extra_live(ctx)) return;
+    uint8_t listed[SHANTAE_MAX_SLOTS] = {0};
+    for (unsigned a = ctx->hram[0x33] | ctx->hram[0x34] << 8; a;) {
+        const int i = shantae_slot_index(ctx, a);
+        if (i < 0 || listed[i]) return;
+        listed[i] = 1;
+        a = slot_word(ctx, i, 0x7C);
+    }
+    if (s->nodes == EXTRA_NODES) {
+        uint8_t marks[ORIGINAL_NODES + EXTRA_NODES] = {0};
+        if (mark_nodes(ctx, ctx->hram[0x6C] | ctx->hram[0x6D] << 8, marks, 1) < 0 ||
+            mark_nodes(ctx, ctx->hram[0x6A] | ctx->hram[0x6B] << 8, marks, 2) < 0)
+            return;
+        for (int i = ORIGINAL_NODES; i < ORIGINAL_NODES + EXTRA_NODES; ++i)
+            if (marks[i] == 1) return;
+        drop_from_list(ctx, 0x6A, ORIGINAL_NODES, 1);   /* FFEA */
+        memset(ctx->wram_ext + NODE_OFFSET, 0, NODE_MAPPED);
+        s->nodes = 0;
+    }
+    drop_from_list(ctx, 0x33, SHANTAE_ORIGINAL_SLOTS, 0);   /* FFB3 */
+    reset_passes(s, SHANTAE_ORIGINAL_SLOTS);
+    memset(ctx->wram_ext, 0, PRIVATE_OFFSET);
+    memset(ctx->wram + 0x3000 + (TAIL - 0xD000), 0, 0xE000 - TAIL);
+    s_counts.town_tables++;
+}
+
 void shantae_slots_state_loaded(GBContext *ctx) {
     SlotState *s = slot_state(ctx);
     if (!s) return;
@@ -403,6 +477,7 @@ void shantae_slots_state_loaded(GBContext *ctx) {
         if (s->slots > SHANTAE_ORIGINAL_SLOTS) upgrade_nodes(ctx, s);
         s_counts.node_upgrades += s->nodes == EXTRA_NODES;
     }
+    shrink_town(ctx, s);
     sync(ctx);
 }
 
