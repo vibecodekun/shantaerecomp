@@ -585,6 +585,96 @@ static uint8_t tinkerbats_near(GBContext *ctx, uint8_t value) {
     return (uint8_t)(count < 0xFF ? count : 0xFF);
 }
 
+/* Budgets. Some spawners share a count of what they have made, as the
+ * tinkerbats above do, and make no more while it is at its limit; what they
+ * made lowers it again when retention releases it (a callback that asks
+ * 00:12B2 and then counts down, or one that calls such a callback first) or
+ * when it dies. The view keeps what the original would have released, so the
+ * count stayed at its limit and the spawners by Shantae made nothing. Flying
+ * each route at 1920x1080 against the original:
+ * - map 40:9F's swamp creatures (0A:4204, script 21:5BDE), twelve along the
+ *   bottom: one surfaces once Shantae is 112 pixels past it and swims after
+ *   her, one at a time (C000 < 1, VM op 98 at 21:5BED). The one following her
+ *   held the count: three never surfaced and three surfaced 300-390 pixels
+ *   late.
+ * - map 67:85's spawners (0A:41F8, script 21:4D6D; C000 < 3 at 21:4D7D) make
+ *   one every 60 frames: hovering by the three at 419-516,1390-1446, the
+ *   original's nine came from them and the view's six all from the one at
+ *   954,1196, 500 pixels off.
+ * - the spawners of that map's room above (0A:4220; C000 < 2 at 0B:684F) and
+ *   map 40:58's two kinds (0A:41AC and 0A:41B0; C080 < 2 at 0B:4695 and
+ *   0B:4BAD) make one when Shantae comes near: 17 and 14 in the original,
+ *   15 and 6 in the view.
+ * A spawner the original's retention bounds (FFB5-FFBC) keep, one the
+ * original would be running, reads the count less what the original would
+ * already have released: what wears one of the budget's release callbacks and
+ * is outside those bounds. What is between states (just made, or dying)
+ * stays counted, as the game counts it. The view keeps those released ones
+ * alive, so a spawner that makes one again and again takes off at most its
+ * allowance of them (`kept`, its limit): 0A:41F8 makes one every 60 frames
+ * with no need of Shantae nearby, and with no allowance its creatures, flying
+ * out of the original's reach, were replaced without end (52 alive after 1000
+ * frames by the cluster). Each swamp creature surfaces once as Shantae passes
+ * its place, so theirs is all twelve. A spawner only the view runs, like
+ * 954,1196, reads the count as it is, so it only makes one while the budget
+ * is free. Either reads no more than the limit: most of these compares test
+ * for the limit itself (CP $03 / JR Z after 21:4D80, op 98's JR Z after
+ * 21:5BED), which the original's count never passes and the view's can. The
+ * count itself is the game's, up for each one made and down for each one
+ * released, so at most the limit plus the allowance are alive at once. */
+typedef struct {
+    uint8_t bank;              /* the compare's ROM bank, and its callbacks' */
+    uint16_t pc;               /* its read of the count (generated PC) */
+    uint16_t de;               /* VM op 98: the script's DE past its arguments; 0 in native code */
+    uint16_t count;
+    uint8_t limit;             /* the compare's */
+    uint8_t kept;              /* the allowance: at most this many released ones are taken off */
+    uint16_t callbacks[14];    /* release callbacks, 0-terminated */
+} Budget;
+#define BUDGET_C080 {0x4971, 0x4e6f, 0x4fff, 0x50a2, 0x516c, 0x5233, 0x532c, 0x5445, 0x563a, 0x56f6, \
+                     0x5746, 0x57a8, 0x5882}
+static const Budget budgets[] = {
+    {0x21, 0x1905, 0x5bf1, 0xc000, 1, 12, {0x5c44}},               /* 0A:4204, op 98 at 00:1904 */
+    {0x21, 0x4d81, 0, 0xc000, 3, 3, {0x4e6e, 0x4ee6, 0x4f1e}},     /* 0A:41F8, 21:4D80 */
+    {0x0b, 0x6853, 0, 0xc000, 2, 2, {0x67da, 0x6970, 0x69df}},     /* 0A:4220, 0B:6852 */
+    {0x0b, 0x4699, 0, 0xc080, 2, 2, BUDGET_C080},                   /* 0A:41AC, 0B:4698 */
+    {0x0b, 0x4bb1, 0, 0xc080, 2, 2, BUDGET_C080},                   /* 0A:41B0, 0B:4BB0 */
+};
+static unsigned budget_reads;   /* compares answered other than the count */
+
+static const Budget *budget_at(const GBContext *ctx, uint16_t addr) {
+    for (size_t i = 0; i < sizeof(budgets) / sizeof(budgets[0]); ++i) {
+        const Budget *b = &budgets[i];
+        if (b->count == addr && b->pc == ctx->pc && b->bank == ctx->rom_bank && (!b->de || b->de == ctx->de))
+            return b;
+    }
+    return NULL;
+}
+static int budget_callback(const Budget *b, unsigned callback) {
+    for (const uint16_t *c = b->callbacks; *c; ++c)
+        if (*c == callback) return 1;
+    return 0;
+}
+static uint8_t budget_count(GBContext *ctx, const Budget *b, uint8_t value) {
+    /* The spawner: BC, or pushed at 00:1900 for op 98. */
+    const int self = shantae_slot_index(ctx, b->de ? memory16(ctx, ctx->sp) : ctx->bc);
+    if (self < 0) return value;
+    unsigned count = value;
+    if (!released_natively(ctx, self)) {
+        unsigned released = 0;
+        for (int i = 0; i < shantae_slot_count(ctx); ++i) {
+            const unsigned o = shantae_slot_addr(i);
+            released += i != self && slot_byte(ctx, o) != 0xFF && slot_byte(ctx, o + 0x19) == b->bank &&
+                        budget_callback(b, slot_word(ctx, o + 0x1b)) && released_natively(ctx, i);
+        }
+        count -= released < b->kept ? released : b->kept;
+        if (count > value) count = 0;
+    }
+    if (count > b->limit) count = b->limit;
+    if (count != value) budget_reads++;
+    return (uint8_t)count;
+}
+
 /* Totems. A totem's stones (object 0A:4054, script 0C:4340) take their totem
  * and place (0 the top) from their record (+20, +21), and each notes itself at
  * C004 + 2 x place (0C:43C8) as it spawns and as each flip (0C:442C) starts
@@ -632,6 +722,8 @@ static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
         return activation_widened(ctx) ? spawn_flag(ctx, value) : value;
     if (addr == TINKERBAT_COUNT && ctx->pc == TINKERBAT_COMPARE_PC)
         return activation_widened(ctx) ? tinkerbats_near(ctx, value) : value;
+    const Budget *budget = addr == 0xc000 || addr == 0xc080 ? budget_at(ctx, addr) : NULL;
+    if (budget) return activation_widened(ctx) ? budget_count(ctx, budget, value) : value;
     if (addr >= TOTEM_NOTES && addr < TOTEM_NOTES + 2 * TOTEM_PLACES && ctx->rom_bank == 0x0c &&
         ctx->pc == TOTEM_READ_PC + 0x30 * ((addr - TOTEM_NOTES) / 2) + 2 * (addr & 1))
         return totem_note(ctx, addr, value);

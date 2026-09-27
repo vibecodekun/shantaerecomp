@@ -42,6 +42,7 @@ the launcher verifies it.
 | `tools/expanded_view_check.c`, `tools/object_slots_check.c` | Expanded-view compositor checks; the grown object table through the game's own routines |
 | `tools/check_towns.py` | Every town with the expanded view against the original, frame for frame, from a debug-grid state |
 | `tools/check_totem.py` | The labyrinth's totem puzzle with the expanded view: the orb, then the key, from a saved state |
+| `tools/check_budgets.py` | Spawners that share a count of what they have made, with the expanded view against the original, from a cold boot |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
@@ -183,6 +184,9 @@ tower's mini-boss) still wait for the original distance; NPCs, their houses and
 other set pieces appear with the view. The labyrinth's totem puzzles keep one list of stones
 for every totem, and the view woke a second totem whose stones took the list over, so matching
 the stones never brought the orb (or its key); a totem's pedestal now checks its own stones.
+Spawners that share a count of what they have made (the swamp creatures in one level, and three
+kinds of enemy spawner) counted the ones the view kept far behind Shantae, so fewer appeared
+near her; they now count what the original would still have around her.
 Camera/physics reads and the native PPU remain unchanged.
 See [expanded-view implementation and checks](docs/expanded-view.md).
 

@@ -233,6 +233,12 @@ safely and does not disable the expanded view.
   Select on the inventory opens the grid again while CC04 is set).
   `logs/states/debug-grid.state` is the grid; poking CBFD and CBFC=1 there loads
   a scene, and A held picks another entrance for some (3F: the credits' shaft).
+  From a cold boot the code works at "Press Start" by frame 300, then Start,
+  Down and A (Start Debug Game) and A (File Select's New 1) reach the grid
+  (`tools/check_budgets.py` makes it so). In a scene, Select+A starts the
+  debug flight, 4 pixels a frame in all four directions; Select again ends it.
+  Flying does not take a room's exits: end it and walk. Dialogue scrolls fast
+  with B held; B again goes on.
 - Metasprites: capture descriptor and world position at 00:1DC6, before native
   culling. Preserve the D700/D800 draw lists when 01:667C swaps shadow OAM pages.
   The frame descriptor contains piece layout; the animation points to the ROM
@@ -495,6 +501,57 @@ safely and does not disable the expanded view.
   stones, so this reads what the original would; it applies whenever the
   view is on, which also mends states saved with the damage.
 
+- Budgets: some spawners share a count of what they have made (a WRAM byte
+  raised as each is made) and make no more at its limit; what they made
+  lowers it when retention releases it (a callback that asks 00:12B2 and then
+  counts down, or one that calls such a callback first) or when it dies. The
+  tinkerbats (CC2E, above) are one. An audit of the ROM for the pattern (a
+  compare of a WRAM byte with a small limit followed by its increment, in
+  object scripts through VM op 98 and 96 or natively) found four more whose
+  count the view changes:
+
+  | Spawner | Map (debug scene) | Count | Compare |
+  |---|---|---|---|
+  | swamp creatures 0A:4204, 12 placed | 40:9F (0D) | C000 < 1 | VM op 98 at 21:5BED |
+  | 0A:41F8, every 60 frames | 67:85 rooms B/C (09) | C000 < 3 | 21:4D80 |
+  | 0A:4220, near Shantae | 67:85 room A (36) | C000 < 2 | 0B:6852 |
+  | 0A:41AC and 0A:41B0, near Shantae | 40:58 (02) | C080 < 2 | 0B:4698, 0B:4BB0 |
+
+  A swamp creature surfaces once Shantae is about 112 pixels past its place
+  and swims after her, one at a time; the view kept the one following her,
+  and flying right through the level at 1920×1080 three of the twelve never
+  surfaced and three surfaced 300-390 pixels late. Hovering by 0A:41F8's
+  three spawners at 419-516,1390-1446, the original's nine creatures came
+  from them and the view's six all from the one at 954,1196, 500 pixels off.
+  Along their rows 0A:4220 made 17 and 15, and map 40:58's pair 14 and 6.
+
+  Each compare now reads, for a spawner the original's retention bounds
+  (FFB5-FFBC) keep, the count less what the original would already have
+  released: what wears one of the budget's release callbacks and is outside
+  those bounds, at most the budget's allowance of them (its limit; twelve
+  for the swamp creatures, each of which surfaces once as she passes). What
+  is between states (just made, or dying: 0B:47D8, 0B:4829, 0B:6C4C and
+  21:4FA2 do not count down) stays counted. With no allowance 0A:41F8, which
+  makes one every 60 frames whether Shantae is near or not, had 52 alive
+  after 1000 frames by the cluster: its creatures flew out of the original's
+  reach and were replaced without end. A spawner only the view runs reads the
+  count as it is, so it only makes one while the budget is free. Either reads
+  no more than the limit, since most of these compares test for the limit
+  itself (`CP $03` / `JR Z` after 21:4D80) and the view's count can pass it.
+  The count stays the game's, up for each one made and down for each one
+  released, so at most the limit plus the allowance are alive at once.
+  `budgets` in `shantae_view_info` counts the compares answered other than
+  the count.
+
+  Not affected: 0A:412C (C01F < 2, 14 placed in map 5E:8F) makes one only
+  within 48 pixels of Shantae and made 6 and 5. The other objects that note
+  their own address in a fixed byte either read it back in the same routine
+  (98 sites, which make a child and place it at themselves: CBFA, C020 and
+  the like), write it only when Shantae touches them (0A:431C, 37 placed;
+  0A:4354), index it by their own argument (0A:4014), sit in rooms of their
+  own (0A:4280 and 0A:4288 in map 62:BB), are placed once, or belong to
+  scene code, menus, the text engine, the credits or boss arenas.
+
 - Scene gate: menus reuse the map engine state. The inventory keeps C9F8–C9FA
   and the room bounds, zeroes both cameras, and replaces the tilemap and tile
   data. The view expands only while at least half of the fully visible native
@@ -594,6 +651,13 @@ python tools/check_expanded_replays.py logs/view-b2 --width 1920 --height 1080 -
 # 426x240 and 3840x2160 too.
 python tools/check_totem.py
 python tools/check_totem.py --native
+# Spawner budgets (about 5 minutes): the debug grid made from a cold boot,
+# four routes flown in both views. The swamp creatures surface in both,
+# within 40 pixels of the original's lead; by 0A:41F8's cluster at least
+# three are made by Shantae and never more than six counted; 0A:4220's and
+# map 40:58's make at least two thirds of the original's number (their random
+# waits differ between the views), never more than four counted.
+python tools/check_budgets.py
 ```
 
 `--room-zoom` writes `room_zoom` to the isolated `shantae.ini` and `--window`
@@ -737,7 +801,11 @@ them with the entry and bank 00:1122–1140 would use; moving at the guard's
 pace does not; activation takes the size an easing-out zoom heads for),
 a totem's pedestal reading its own stones (a flipping one too; not another
 totem's noted over them, nor a fireball in a released stone's slot; the note
-when it has none),
+when it has none), spawner budgets (the count less what the original would
+have released, up to the allowance and in an A000 slot too, one between
+states still counted, no more than the limit, a spawner the original would
+not run reading the count, the swamp creatures' op 98 by its DE, and other
+reads, banks and unwidened rooms left alone),
 object slots (with 32, 93 and 157 slots: records
 wait with no free slot and, outside the original bounds, while 12 or fewer
 are free; retention releases off-screen objects the original bounds release,

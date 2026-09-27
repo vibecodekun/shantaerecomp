@@ -706,6 +706,64 @@ int main(void) {
         for (int i = 0; i < 7; ++i) memset(shantae_slot_memory(ctx, shantae_slot_addr(used[i])), 0, SHANTAE_SLOT_SIZE);
         #undef TINKERBAT
     }
+    /* Budgets. A spawner the original's retention bounds keep (x 920-1240,
+     * y 928-1216 here) reads its count less what wears one of the budget's
+     * release callbacks outside them, by at most the budget's allowance, and
+     * no more than its limit; one outside them reads the count, no more than
+     * its limit. What is between states stays counted. */
+    {
+        #define OBJECT(slot, x, y, bank, callback) do { \
+            const unsigned o_ = shantae_slot_addr(slot); \
+            put_slot16(ctx, slot, 0x34, x); put_slot16(ctx, slot, 0x37, y); \
+            *shantae_slot_memory(ctx, o_ + 0x57) = 16; *shantae_slot_memory(ctx, o_ + 0x58) = 16; \
+            *shantae_slot_memory(ctx, o_) = 0; *shantae_slot_memory(ctx, o_ + 0x24) = 0; \
+            *shantae_slot_memory(ctx, o_ + 0x19) = bank; put_slot16(ctx, slot, 0x1b, callback); } while (0)
+        #define GONE(slot) (*shantae_slot_memory(ctx, shantae_slot_addr(slot)) = 0xff)
+        const unsigned saved_bc = ctx->bc, saved_de = ctx->de, saved_bank = ctx->rom_bank;
+        /* 0A:41AC's compare of C080 with 2 (0B:4698), the spawner in BC. */
+        OBJECT(60, 1000, 1000, 0x0b, 0x4648);   /* the spawner */
+        OBJECT(61, 1010, 1000, 0x0b, 0x4971);   /* one it made, by Shantae */
+        OBJECT(62, 2000, 1000, 0x0b, 0x4e6f);   /* one left behind */
+        ctx->bc = shantae_slot_addr(60); ctx->rom_bank = 0x0b; ctx->pc = 0x4699;
+        CHECK(read_override(ctx, 0xc080, 2) == 1);
+        OBJECT(63, 2100, 1000, 0x0b, 0x4fff);
+        CHECK(read_override(ctx, 0xc080, 3) == 1);
+        OBJECT(121, 3000, 1100, 0x0b, 0x5882);  /* at A000: the allowance of 2 is used up */
+        CHECK(read_override(ctx, 0xc080, 4) == 2);
+        GONE(62); GONE(63); GONE(121);
+        OBJECT(64, 2200, 1000, 0x0b, 0x47d8);   /* between states: counted */
+        CHECK(read_override(ctx, 0xc080, 2) == 2);
+        ctx->pc = 0x4bb1; CHECK(read_override(ctx, 0xc080, 2) == 2);   /* 0A:41B0's, 0B:4BB0 */
+        OBJECT(62, 2000, 1000, 0x0b, 0x4e6f);
+        CHECK(read_override(ctx, 0xc080, 3) == 2);
+        /* A spawner only the view runs: the count, no more than the limit. */
+        put_slot16(ctx, 60, 0x34, 3000);
+        CHECK(read_override(ctx, 0xc080, 3) == 2 && read_override(ctx, 0xc080, 1) == 1);
+        put_slot16(ctx, 60, 0x34, 1000);
+        /* Other reads of the count, another bank, and a room the view does not widen. */
+        ctx->pc = 0x469a; CHECK(read_override(ctx, 0xc080, 3) == 3);
+        ctx->pc = 0x4699; ctx->rom_bank = 0x0c; CHECK(read_override(ctx, 0xc080, 3) == 3);
+        ctx->rom_bank = 0x0b; widened = 0; CHECK(read_override(ctx, 0xc080, 3) == 3); widened = 1;
+        /* The swamp creatures' op 98 (21:5BED, DE past its arguments), the new
+         * one pushed at 00:1900: one following Shantae outside the bounds
+         * lets it surface, one inside them does not. */
+        OBJECT(70, 1000, 1000, 0x21, 0x5bfb);
+        OBJECT(71, 700, 1000, 0x21, 0x5c44);
+        ctx->sp = 0xc800; put16(ctx->wram + 0x800, shantae_slot_addr(70));
+        ctx->rom_bank = 0x21; ctx->pc = 0x1905; ctx->de = 0x5bf1;
+        CHECK(read_override(ctx, 0xc000, 1) == 0);
+        OBJECT(72, 400, 1000, 0x21, 0x5c44);    /* no allowance to speak of: 12 */
+        CHECK(read_override(ctx, 0xc000, 2) == 0);
+        put_slot16(ctx, 71, 0x34, 1100);
+        CHECK(read_override(ctx, 0xc000, 2) == 1);
+        ctx->de = 0x5bf0; CHECK(read_override(ctx, 0xc000, 2) == 2);   /* another script's op 98 */
+        const int used[] = {60, 61, 62, 63, 64, 121, 70, 71, 72};
+        for (int i = 0; i < 9; ++i) memset(shantae_slot_memory(ctx, shantae_slot_addr(used[i])), 0, SHANTAE_SLOT_SIZE);
+        CHECK(budget_reads > 0);
+        ctx->bc = saved_bc; ctx->de = saved_de; ctx->rom_bank = saved_bank;
+        #undef GONE
+        #undef OBJECT
+    }
     /* A totem's pedestal (0C:4C25, pushed at 0C:4C29) reads the stones noted
      * at C004 + 2 x place (0C:4C4F / 0C:4C51, 48 bytes on per place) as the
      * live stones of its own totem at those places, in their script 0C:4340
@@ -1004,6 +1062,6 @@ int main(void) {
           gb_custom_native_scaling == GB_CUSTOM_NATIVE_SCALING_MODE && gb_custom_native_scale == 1);
 
     free(out); free(rom); free(ppu); free(ctx->wram); free(ctx->hram); free(ctx);
-    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, totem stones, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
+    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
     return 0;
 }
