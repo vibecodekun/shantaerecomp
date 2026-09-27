@@ -465,6 +465,36 @@ safely and does not disable the expanded view.
   goes back to it on load while nothing lives past slot 31 (`town_tables` in
   `shantae_view_info`, `town` for the room).
 
+- Totems: the labyrinth (map 50:4A, records in bank 4D) has four totem
+  puzzles, at 488,1880 (three stones), 1960,3176 (three), 2496,2608 (two) and
+  3104,1360 (four). A stone (object 0A:4054, script 0C:4340) takes its totem
+  and place (0 the top) from its record (+20, +21), keeps its face (+65,
+  1-3) beside the record's flag (the byte after it in WRAM bank 4, 00:0F5C),
+  and notes itself at C004 + 2 × place
+  (0C:43C8) as it spawns and after every flip, which starts its script
+  again (0C:442C). A whip that reaches it (callback 0C:4465) flips it. The
+  totem's pedestal (0A:4058, callback 0C:4C25) reads the stones noted at
+  C004–C013 every frame and, once their faces are the totem's solution
+  (C035 + 8 × totem), sets CA93 + its +22 >> 4 and becomes the orb
+  (0C:41E1); a crouching whip frees the key and walking into it takes it
+  (CA85). The notes are one list for all four totems, and no two are ever
+  within the original's reach of each other. The view kept the stones by
+  Shantae alive while it woke another totem's (the one at 2496,2608 is 536
+  pixels right of and 568 above the one at 1960,3176, inside a 1920×1080
+  view), whose stones noted themselves over
+  them and, once released, left their slots to fireballs. The user's state2
+  (2026-09-26, 1920×1080) had the top two notes on slots F07C and F5E6:
+  whipping the top stone to its face solved the puzzle and the orb never
+  came. The pedestal's reads (0C:4C4F and 0C:4C51, then 48 bytes on for
+  each place; generated PCs 4C50 and 4C52) now take the live stone of its
+  own totem at that place: its record's totem and place, and its script
+  position in 0C:4340–4464 (a flip moves its callback to 00:0C41, and a slot
+  keeps a released stone's record and arguments, so a fireball there still
+  reads as that stone), the noted one first, and the note itself when there
+  is none. Where the original can solve a puzzle at all its notes are those
+  stones, so this reads what the original would; it applies whenever the
+  view is on, which also mends states saved with the damage.
+
 - Scene gate: menus reuse the map engine state. The inventory keeps C9F8–C9FA
   and the room bounds, zeroes both cameras, and replaces the tilemap and tile
   data. The view expands only while at least half of the fully visible native
@@ -555,6 +585,15 @@ python tools/view_state_repro.py logs/states/b2-shake.state --route=-:60 --inter
 python tools/check_expanded_replays.py logs/view-b2-shake --width 1920 --height 1080 --room-zoom --no-background-objects
 python tools/view_state_repro.py logs/states/b2-activation.state --route=-:400 --interval 1 --width 1920 --height 1080 --room-zoom 1 --window 1920x1080:1 --out logs/view-b2 --port 14384
 python tools/check_expanded_replays.py logs/view-b2 --width 1920 --height 1080 --room-zoom
+# The labyrinth's totem at 1960,3176 (the user's state2 on 2026-09-26,
+# 1920x1080, saved with the top two stone notes on other objects' slots):
+# one whip at the top stone at the height of a jump gives the orb (the
+# pedestal leaves 0C:4BFB), a crouching whip frees the key, and walking left
+# takes it (CA85 0 -> 1). --native plays it in the original view with the
+# notes put right by hand, for the original's outcome; both pass, and at
+# 426x240 and 3840x2160 too.
+python tools/check_totem.py
+python tools/check_totem.py --native
 ```
 
 `--room-zoom` writes `room_zoom` to the isolated `shantae.ini` and `--window`
@@ -696,6 +735,9 @@ fade palette correction, filling an area the view has just revealed (the
 first widened scan and a cut queue the area's other sectors, 00:1143 scans
 them with the entry and bank 00:1122–1140 would use; moving at the guard's
 pace does not; activation takes the size an easing-out zoom heads for),
+a totem's pedestal reading its own stones (a flipping one too; not another
+totem's noted over them, nor a fireball in a released stone's slot; the note
+when it has none),
 object slots (with 32, 93 and 157 slots: records
 wait with no free slot and, outside the original bounds, while 12 or fewer
 are free; retention releases off-screen objects the original bounds release,

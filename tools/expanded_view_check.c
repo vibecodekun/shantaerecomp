@@ -70,6 +70,17 @@ static void free_last(GBContext *ctx, int n) {
     for (int i = 0; i < test_slots; ++i)
         put_slot16(ctx, i, 0x7c, i >= test_slots - n && i + 1 < test_slots ? shantae_slot_addr(i + 1) : 0);
 }
+/* The stone a totem's pedestal reads for `place`: 0C:4C4F LD C,(HL) and
+ * 0C:4C51 LD B,(HL), 48 bytes on per place (generated PCs one past each). */
+static unsigned totem_read(GBContext *ctx, int place) {
+    unsigned stone = 0;
+    for (int high = 0; high < 2; ++high) {
+        const uint16_t addr = (uint16_t)(0xc004 + 2 * place + high);
+        ctx->pc = (uint16_t)(0x4c50 + 0x30 * place + 2 * high);
+        stone |= (unsigned)read_override(ctx, addr, ctx->wram[addr - 0xc000]) << (8 * high);
+    }
+    return stone;
+}
 
 int main(void) {
     GBContext *ctx = calloc(1, sizeof(*ctx));
@@ -695,6 +706,44 @@ int main(void) {
         for (int i = 0; i < 7; ++i) memset(shantae_slot_memory(ctx, shantae_slot_addr(used[i])), 0, SHANTAE_SLOT_SIZE);
         #undef TINKERBAT
     }
+    /* A totem's pedestal (0C:4C25, pushed at 0C:4C29) reads the stones noted
+     * at C004 + 2 x place (0C:4C4F / 0C:4C51, 48 bytes on per place) as the
+     * live stones of its own totem at those places, in their script 0C:4340
+     * (a flip included): not another totem's stone noted over them, nor a
+     * fireball whose slot kept a stone's arguments. A noted stone that is
+     * its own stays, and with none the note stands. */
+    {
+        #define OBJECT(slot, status, bank, pc, totem, place) do { \
+            const unsigned o_ = shantae_slot_addr(slot); \
+            *shantae_slot_memory(ctx, o_) = status; *shantae_slot_memory(ctx, o_ + 4) = bank; \
+            put_slot16(ctx, slot, 2, pc); \
+            *shantae_slot_memory(ctx, o_ + 0x20) = totem; *shantae_slot_memory(ctx, o_ + 0x21) = place; } while (0)
+        OBJECT(60, 0, 0x0c, 0x4bfb, 2, 3);     /* the pedestal: totem 2, three stones */
+        OBJECT(61, 0, 0x0c, 0x439b, 2, 0);     /* its top stone */
+        OBJECT(62, 0, 0x0c, 0x439b, 5, 0);     /* another totem's top stone */
+        OBJECT(121, 0, 0x0c, 0x443b, 2, 1);    /* its middle stone, flipping, at A000 */
+        OBJECT(63, 0, 0x09, 0x4cbd, 2, 1);     /* a fireball in a released stone's slot */
+        OBJECT(64, 0xff, 0x0c, 0x4394, 2, 2);  /* a freed slot */
+        put16(ctx->wram + 0x004, shantae_slot_addr(62));
+        put16(ctx->wram + 0x006, shantae_slot_addr(63));
+        put16(ctx->wram + 0x008, shantae_slot_addr(64));
+        const unsigned saved_bank = ctx->rom_bank;
+        ctx->sp = 0xc800; put16(ctx->wram + 0x800, shantae_slot_addr(60)); ctx->rom_bank = 0x0c;
+        CHECK(totem_read(ctx, 0) == shantae_slot_addr(61));
+        CHECK(totem_read(ctx, 1) == shantae_slot_addr(121));
+        CHECK(totem_read(ctx, 2) == shantae_slot_addr(64));   /* none of its own: the note */
+        OBJECT(65, 0, 0x0c, 0x43a2, 2, 0);
+        put16(ctx->wram + 0x004, shantae_slot_addr(65));
+        CHECK(totem_read(ctx, 0) == shantae_slot_addr(65));   /* the noted one, of two */
+        put16(ctx->wram + 0x004, shantae_slot_addr(62));
+        ctx->pc = 0x4c50; ctx->rom_bank = 0x0d; CHECK(read_override(ctx, 0xc004, 0x12) == 0x12);
+        ctx->pc = 0x4c51; ctx->rom_bank = 0x0c; CHECK(read_override(ctx, 0xc004, 0x12) == 0x12);
+        ctx->pc = 0x4c80; CHECK(read_override(ctx, 0xc004, 0x12) == 0x12);   /* place 1's read of place 0 */
+        const int used[] = {60, 61, 62, 121, 63, 64, 65};
+        for (int i = 0; i < 7; ++i) memset(shantae_slot_memory(ctx, shantae_slot_addr(used[i])), 0, SHANTAE_SLOT_SIZE);
+        memset(ctx->wram + 0x004, 0, 6); ctx->rom_bank = saved_bank;
+        #undef OBJECT
+    }
     reset_view(ctx);
     CHECK(!retention_seen[0][movers[0]] && !spawn_waits && !early_releases && !doors_restored);
     test_slots = SHANTAE_ORIGINAL_SLOTS;
@@ -955,6 +1004,6 @@ int main(void) {
           gb_custom_native_scaling == GB_CUSTOM_NATIVE_SCALING_MODE && gb_custom_native_scale == 1);
 
     free(out); free(rom); free(ppu); free(ctx->wram); free(ctx->hram); free(ctx);
-    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
+    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, totem stones, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
     return 0;
 }

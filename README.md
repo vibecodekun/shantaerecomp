@@ -41,6 +41,7 @@ the launcher verifies it.
 | `tools/test_annotations.py`, `tools/native_dispatch_check.c` | Discovery regressions and compiled-dispatch differential checks |
 | `tools/expanded_view_check.c`, `tools/object_slots_check.c` | Expanded-view compositor checks; the grown object table through the game's own routines |
 | `tools/check_towns.py` | Every town with the expanded view against the original, frame for frame, from a debug-grid state |
+| `tools/check_totem.py` | The labyrinth's totem puzzle with the expanded view: the orb, then the key, from a saved state |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
@@ -179,7 +180,10 @@ addresses leave room for; the water tower's rooms at 1920×1080 want about 130),
 and the collision pool that platforms and hazards take from has a node for every
 slot instead of 12. Encounters that start the moment they exist (the water
 tower's mini-boss) still wait for the original distance; NPCs, their houses and
-other set pieces appear with the view. Camera/physics reads and the native PPU remain unchanged.
+other set pieces appear with the view. The labyrinth's totem puzzles keep one list of stones
+for every totem, and the view woke a second totem whose stones took the list over, so matching
+the stones never brought the orb (or its key); a totem's pedestal now checks its own stones.
+Camera/physics reads and the native PPU remain unchanged.
 See [expanded-view implementation and checks](docs/expanded-view.md).
 
 ## Shader presets (librashader)

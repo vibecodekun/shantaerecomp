@@ -585,6 +585,46 @@ static uint8_t tinkerbats_near(GBContext *ctx, uint8_t value) {
     return (uint8_t)(count < 0xFF ? count : 0xFF);
 }
 
+/* Totems. A totem's stones (object 0A:4054, script 0C:4340) take their totem
+ * and place (0 the top) from their record (+20, +21), and each notes itself at
+ * C004 + 2 x place (0C:43C8) as it spawns and as each flip (0C:442C) starts
+ * its script again. The totem's pedestal (0A:4058, callback 0C:4C25) reads
+ * the stones noted there every frame and gives the orb once their faces
+ * (+65) are the totem's solution (C035 + 8 x totem). The notes are one list
+ * for all totems. The labyrinth's map has four (at 488,1880, 1960,3176,
+ * 2496,2608 and 3104,1360), never two within the original's reach; the view
+ * woke others, whose stones noted themselves over the ones beside Shantae and
+ * whose slots, once released, went to fireballs. In the user's state2
+ * (2026-09-26, 1920x1080) the pedestal at 1968,3232 read slots F07C and F5E6
+ * for its top two stones, so matching them never gave the orb. Its reads
+ * (0C:4C4F and 0C:4C51, then every 48 bytes on for the next place) take the
+ * live stone of its own totem at that place (the noted one if it is), still
+ * in its script (a flip moves its callback, and slots keep a released stone's
+ * record and arguments), and the note as it is when there is none. The
+ * original's notes are that stone whenever its puzzle can be solved at all,
+ * so this applies whenever the view is on and mends states saved with the
+ * damage. */
+#define TOTEM_NOTES 0xc004
+#define TOTEM_PLACES 8
+#define TOTEM_READ_PC 0x4c50   /* 0C:4C4F LD C,(HL), generated PC; LD B,(HL) 2 on */
+static int totem_stone(GBContext *ctx, unsigned o, unsigned totem, unsigned place) {
+    const unsigned pc = slot_word(ctx, o + 2);
+    return shantae_slot_index(ctx, o) >= 0 && slot_byte(ctx, o) != 0xFF && slot_byte(ctx, o + 4) == 0x0c &&
+           pc >= 0x4340 && pc < 0x4465 && slot_byte(ctx, o + 0x20) == totem && slot_byte(ctx, o + 0x21) == place;
+}
+static uint8_t totem_note(GBContext *ctx, uint16_t addr, uint8_t value) {
+    const unsigned place = (addr - TOTEM_NOTES) / 2;
+    const unsigned pedestal = memory16(ctx, ctx->sp);   /* 0C:4C29 pushed BC */
+    if (shantae_slot_index(ctx, pedestal) < 0) return value;
+    const unsigned totem = slot_byte(ctx, pedestal + 0x20);
+    unsigned stone = memory16(ctx, TOTEM_NOTES + 2 * place);
+    for (int i = 0; !totem_stone(ctx, stone, totem, place); ++i) {
+        if (i == shantae_slot_count(ctx)) return value;
+        stone = shantae_slot_addr(i);
+    }
+    return (uint8_t)(stone >> ((addr & 1) ? 8 : 0));
+}
+
 static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
     value = shantae_slots_read_override(ctx, addr, value);
     /* 00:1054 LD A,(HL): the record's flag (generated PC 1055). */
@@ -592,6 +632,9 @@ static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
         return activation_widened(ctx) ? spawn_flag(ctx, value) : value;
     if (addr == TINKERBAT_COUNT && ctx->pc == TINKERBAT_COMPARE_PC)
         return activation_widened(ctx) ? tinkerbats_near(ctx, value) : value;
+    if (addr >= TOTEM_NOTES && addr < TOTEM_NOTES + 2 * TOTEM_PLACES && ctx->rom_bank == 0x0c &&
+        ctx->pc == TOTEM_READ_PC + 0x30 * ((addr - TOTEM_NOTES) / 2) + 2 * (addr & 1))
+        return totem_note(ctx, addr, value);
     if (addr < 0xffb5 || addr > 0xffcc || !activation_widened(ctx)) return value;
     if (addr >= 0xffc5 && addr <= 0xffcc && ctx->pc >= 0x0fc6 && ctx->pc <= 0x1058) {
         unsigned i = (addr - 0xffc5) / 2;
