@@ -43,6 +43,7 @@ the launcher verifies it.
 | `tools/check_towns.py` | Every town with the expanded view against the original, frame for frame, from a debug-grid state |
 | `tools/check_totem.py` | The labyrinth's totem puzzle with the expanded view: the orb, then the key, from a saved state |
 | `tools/check_budgets.py` | Spawners that share a count of what they have made, with the expanded view against the original, from a cold boot |
+| `tools/check_crow.py` | Sky's crow at the desert labyrinth with the expanded view: its dialogue opens the door, and it is there however Shantae comes back, from a saved state |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
@@ -187,6 +188,11 @@ the stones never brought the orb (or its key); a totem's pedestal now checks its
 Spawners that share a count of what they have made (the swamp creatures in one level, and three
 kinds of enemy spawner) counted the ones the view kept far behind Shantae, so fewer appeared
 near her; they now count what the original would still have around her.
+The view woke objects farther out than it kept them, so some were let go the frame after they
+appeared. Sky's crow, which the desert labyrinth's door brings out as the door appears, went
+while the door stayed, and without its dialogue the door never opened. Objects are now kept as
+far past where they appear as the original keeps them, and a save state taken with the crow
+missing gets it back when loaded with the view on.
 Camera/physics reads and the native PPU remain unchanged.
 See [expanded-view implementation and checks](docs/expanded-view.md).
 

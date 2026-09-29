@@ -238,7 +238,16 @@ safely and does not disable the expanded view.
   (`tools/check_budgets.py` makes it so). In a scene, Select+A starts the
   debug flight, 4 pixels a frame in all four directions; Select again ends it.
   Flying does not take a room's exits: end it and walk. Dialogue scrolls fast
-  with B held; B again goes on.
+  with B held; B again goes on. The flight asks for debug mode only at
+  06:472E (in 06:46E2, which the player's movement routines call in normal
+  control): with CC04 set and Select+A held, 06:473D sets the player's
+  script to 06:71B5 (+16 = $0080, +5 = $FF), which installs the flight
+  callback 06:71D4 and clears C30D and CB78; Select there (06:7246) goes
+  back to script 06:49F2 without asking. The debug command `shantae_flight`
+  writes what 06:473D writes, so any state can fly without debug mode,
+  which would also open the grid from the inventory (05:5A43) and have
+  0A:4468 skip the save file (04:4D55). In the debug server's `set_input`,
+  T is Select and S is Start.
 - Metasprites: capture descriptor and world position at 00:1DC6, before native
   culling. Preserve the D700/D800 draw lists when 01:667C swaps shadow OAM pages.
   The frame descriptor contains piece layout; the animation points to the ROM
@@ -274,7 +283,14 @@ safely and does not disable the expanded view.
   x × 4, bank C39B), coming back to 00:1143. `fills` in `shantae_view_info`
   counts them. While the room zoom eases out, activation takes the size of
   the picture it eases to, so what the growing picture shows is awake first
-  and the area is filled once. Retention reads in 00:11C5–1289 use expanded bounds. The original
+  and the area is filled once. Retention reads in 00:11C5–1289 use expanded
+  bounds: the spawn rectangle (the view and its guard, stopping at the room
+  plus 8) with the original's slack past it, 72 across and 64 down (its
+  spawn margin of 8 to its 80 and 72). They were the view plus 80 and 72,
+  inside the guard once it passes 80 (120 across at 1920×1080): what spawned
+  by the guard was released the next frame and spawned again a cycle later,
+  and a child made at its parent's spawn went for good while the parent
+  stayed (Sky's crow, below). The original
   allocator, spawn flags, scripts and cleanup still run. Physics and camera
   consumers see their original values. Earlier enemy activation is intentional.
 - Object slots: the game has 32 (D000 in WRAM bank 3). 01:4CB6 builds the
@@ -552,6 +568,35 @@ safely and does not disable the expanded view.
   own (0A:4280 and 0A:4288 in map 62:BB), are placed once, or belong to
   scene code, menus, the text engine, the credits or boss arenas.
 
+- Sky's crow: the desert labyrinth's door (map 74:AB, object 0A:4238,
+  script 15:5804, record AD:70F7, box 880-911 × 880-919) picks its step by
+  CA9C as it spawns (15:582A): at 1 it makes the crow (15:591F: a slot
+  through 00:0C2D, script 15:5A37, at 890,890, 12×16 from its script, no
+  record) and waits at 15:5873 for CA9C to reach 4; at 2-5 it makes the
+  crow's later forms (15:5961, 15:59A3). Nothing else makes the crow. It
+  perches on the door, and walking into it (its callback 15:5A66: Shantae's
+  box FFEE-FFF5 over its own, B newly pressed) starts its dialogue, which
+  takes CA9C to 2, 3 and 4 (15:5B5B, 15:5C87, 15:5CDA); the door then opens,
+  and Up held on it for 10 frames (the helper 06:7143 sets CB7C) enters the
+  labyrinth (map 78:BE). Retention keeps the door while its record box is in
+  its bounds and the crow while its own box is, so an edge of the bounds
+  between the two (nine pixels on the left, ten on the right) keeps the door
+  and releases the crow; the original can do this too, but its bounds are 72
+  pixels past where the door spawns. With the view's bounds inside the guard
+  (Activation above), the door spawned, was released with its crow, and
+  spawned again every cycle until the bounds reached it, and whether the
+  first spawn within them fell in that band came down to the cycle's phase
+  and Shantae's pace: flying back to the door
+  at 4 pixels every third frame at 1920×1080, 3 of 6 approaches lost the
+  crow and none of 3 in the original. The user's state1 on 2026-09-27
+  (1920×1080, beside the door, `logs/states/crow-door.state`) was saved
+  with the door waiting and no crow. With the slack, 16 of 16 approaches (4
+  pixels every frame, every third frame and every fourth) keep it, the door
+  spawning once. A state file loaded with the view on whose door waits at
+  15:5873-587F while CA9C is 1 and no crow runs its script (15:5A37-5B67)
+  has the door go back to 15:585E on its next script pass (+16 = $0080), so
+  its call to 15:591F makes the crow again (`crows` in `shantae_view_info`).
+
 - Scene gate: menus reuse the map engine state. The inventory keeps C9F8–C9FA
   and the room bounds, zeroes both cameras, and replaces the tilemap and tile
   data. The view expands only while at least half of the fully visible native
@@ -658,6 +703,15 @@ python tools/check_totem.py --native
 # map 40:58's make at least two thirds of the original's number (their random
 # waits differ between the views), never more than four counted.
 python tools/check_budgets.py
+# Sky's crow at the desert labyrinth (the user's state1 on 2026-09-27,
+# 1920x1080, saved beside the door with the crow lost): loaded, the door makes
+# the crow again; B on it through the dialogue takes CA9C to 4, and Up held
+# on the open door loads the labyrinth (map 78:BE). Then six approaches: fly
+# right (shantae_flight) until the door has been released for 40 frames,
+# back at 4 pixels every third frame, a frame later each time; the crow must
+# be on the door after each. --native flies them in the original view.
+python tools/check_crow.py
+python tools/check_crow.py --native --phases 3
 ```
 
 `--room-zoom` writes `room_zoom` to the isolated `shantae.ini` and `--window`
@@ -799,6 +853,8 @@ fade palette correction, filling an area the view has just revealed (the
 first widened scan and a cut queue the area's other sectors, 00:1143 scans
 them with the entry and bank 00:1122–1140 would use; moving at the guard's
 pace does not; activation takes the size an easing-out zoom heads for),
+retention keeping the spawn rectangle with the original's slack past it (a
+door the rectangle just reaches and the crow it makes),
 a totem's pedestal reading its own stones (a flipping one too; not another
 totem's noted over them, nor a fireball in a released stone's slot; the note
 when it has none), spawner budgets (the count less what the original would

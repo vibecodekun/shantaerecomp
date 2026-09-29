@@ -639,12 +639,34 @@ int main(void) {
     }
     #define NEXT_FRAME() do { ctx->completed_frames++; ctx->pc = 0x11d8; \
         for (int i = 0; i < 7; ++i) { ctx->bc = shantae_slot_addr(movers[i]); world_read_tap(ctx, 0xffb7); } } while (0)
-    #define WIDE_MAX_X_LO ((uint8_t)(1000 - (1920 - 160) / 2 + 1920 + 80))
+    /* The view's right side, its guard (80 at 1920x527) and the original's 72. */
+    #define WIDE_MAX_X_LO ((uint8_t)(1000 - (1920 - 160) / 2 + 1920 + 80 + 72))
     #define KEEPS_WIDE(i) (ctx->pc = 0x11d8, ctx->bc = shantae_slot_addr(movers[i]), \
                            read_override(ctx, 0xffb7, 0xd8) == WIDE_MAX_X_LO)
     CHECK(WIDE_MAX_X_LO != 0xd8);
     NEXT_FRAME(); free_last(ctx, SLOT_RESERVE);
     for (int i = 0; i < 8; ++i) CHECK(KEEPS_WIDE(i));
+    /* Retention keeps what the spawner reaches (the view and its guard) with
+     * the original's slack past it, from its 8-pixel spawn margin to 80
+     * across and 72 down. Kept to the view plus 80 and 72, what spawned by the
+     * guard went the next frame: Sky's crow, made by its door (record box
+     * 880-911 x 880-919) as the door spawns at 890,890 12x16, went while the
+     * door stayed. */
+    {
+        const Box spawn = spawn_box(ctx);
+        int keep[4];
+        for (int i = 0; i < 4; ++i) {
+            ctx->pc = 0x11d8; ctx->bc = shantae_slot_addr(movers[0]);
+            keep[i] = (int16_t)(read_override(ctx, 0xffb5 + 2 * i, 0) | read_override(ctx, 0xffb6 + 2 * i, 0) << 8);
+        }
+        CHECK(spawn.x0 == 1000 - (1920 - 160) / 2 - 80 && spawn.x1 == 1000 - (1920 - 160) / 2 + 1920 + 80);
+        CHECK(keep[0] == spawn.x0 - 72 && keep[1] == spawn.x1 + 72);
+        CHECK(keep[2] == spawn.y0 - 64 && keep[3] == spawn.y1 + 64);
+        /* A door whose record box the spawn rectangle's left side just reaches,
+         * and its crow: retention keeps both. */
+        const int door_x0 = spawn.x0 - 31, crow_x0 = door_x0 + 10, crow_x1 = crow_x0 + 12;
+        CHECK(door_x0 + 31 >= spawn.x0 && crow_x1 > keep[0]);
+    }
     /* Three short of the reserve: the three farthest off screen go. */
     NEXT_FRAME(); free_last(ctx, SLOT_RESERVE - 3);
     CHECK(KEEPS_WIDE(0) && KEEPS_WIDE(1) && KEEPS_WIDE(2) && KEEPS_WIDE(3));
@@ -1039,7 +1061,8 @@ int main(void) {
 
         /* Activation keeps to the same room: at 256 x 144 the shaft's view
          * starts at x 2560 (the camera's own centering would give 2552), so
-         * retention reaches 80 to the left of it. */
+         * retention reaches 80 to the left of it, the room's side, and the
+         * guard (16) and 64 above it. */
         memcpy(ctx->wram, wram, sizeof(wram));
         put16(ctx->hram + 0x61, 2600); put16(ctx->hram + 0x63, 1000);
         ppu->wx = 7; ppu->wy = 128;
@@ -1047,7 +1070,7 @@ int main(void) {
         widened = 1; memcpy(widened_room, ctx->wram + 0x9f8, sizeof(widened_room));
         ctx->pc = 0x11d7; ctx->bc = 0;
         CHECK(read_override(ctx, 0xffb5, 0) == (uint8_t)(2560 - 80) && read_override(ctx, 0xffb6, 0) == (2560 - 80) >> 8);
-        CHECK(read_override(ctx, 0xffb9, 0) == (uint8_t)(1000 - 72));
+        CHECK(read_override(ctx, 0xffb9, 0) == (uint8_t)(1000 - 16 - 64));
 
         ctx->completed_frames = 0; ctx->pc = 0; ready = 0; lcdc = ppu->lcdc = 0; window_x = window_y = 0;
         ppu->wx = ppu->wy = 0; widened = 0;
@@ -1062,6 +1085,6 @@ int main(void) {
           gb_custom_native_scaling == GB_CUSTOM_NATIVE_SCALING_MODE && gb_custom_native_scale == 1);
 
     free(out); free(rom); free(ppu); free(ctx->wram); free(ctx->hram); free(ctx);
-    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
+    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
     return 0;
 }

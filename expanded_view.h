@@ -20,6 +20,9 @@ int shantae_view_town(const struct GBContext *ctx);
 size_t shantae_view_state_size(void);
 void shantae_view_state_save(void *out);
 void shantae_view_state_load(const void *in);
+/* A save state file was loaded: mend what the view lost in states saved
+ * before a fix (Sky's crow at the desert labyrinth). */
+void shantae_view_state_file_loaded(struct GBContext *ctx);
 
 /* View size in game pixels, including the 16-pixel status bar. The original
  * screen is 160 x 144; the default is the NES-size 256 x 240. The maximum is

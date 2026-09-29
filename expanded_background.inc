@@ -345,6 +345,37 @@ static void activation_guard(int width, int height, int *across, int *down) {
     guard_for(activation_passes(width, height), across, down);
 }
 
+/* The spawner's rectangle: the view and its guard, stopping at the room plus
+ * the original's spawn margin (world pixels, ends exclusive). */
+static Box spawn_box(const GBContext *ctx) {
+    int x, y, across, down, width, height;
+    activation_size(&width, &height);
+    const Room room = live_room(ctx);
+    view_origin(&room.box, word(ctx->hram + 0x61), word(ctx->hram + 0x63), width, height, &x, &y);
+    activation_guard(width, height, &across, &down);
+    return (Box){at_least(x - across, room.box.x0 - SPAWN_MARGIN), at_least(y - down, room.box.y0 - SPAWN_MARGIN),
+                 at_most(x + width + across, room.box.x1 + SPAWN_MARGIN),
+                 at_most(y + height + down, room.box.y1 + SPAWN_MARGIN)};
+}
+
+/* Retention keeps what that rectangle spawns, with the original's slack past
+ * it: 72 across and 64 down, from its 8-pixel spawn margin to its 80 and 72.
+ * Kept to the view plus 80 and 72, the guard (120 across at 1920x1080)
+ * spawned objects that retention released the next frame. Sky's crow at the
+ * desert labyrinth (map 74:AB) is made by its door (0A:4238, record 880-911,
+ * 880-919) as the door spawns while CA9C is 1 (15:591F, at 890,890 with no
+ * record of its own); only a door spawning again makes another. Retention
+ * keeps the door while its record box is in the bounds and the crow while its
+ * own 12x16 box is, so with the bounds' edge in the nine pixels between the
+ * two the door stayed and the crow went. The door then waits for CA9C to
+ * reach 4, which only the crow's dialogue sets (15:5CDA), so the labyrinth
+ * stayed shut. */
+static Box keep_box(const GBContext *ctx) {
+    const Box b = spawn_box(ctx);
+    return (Box){b.x0 - (KEEP_ACROSS - SPAWN_MARGIN), b.y0 - (KEEP_DOWN - SPAWN_MARGIN),
+                 b.x1 + (KEEP_ACROSS - SPAWN_MARGIN), b.y1 + (KEEP_DOWN - SPAWN_MARGIN)};
+}
+
 
 /* Object slots (object_slots.c). 01:4DB0 takes the head of the free list at
  * FFB3, linked through slot+$7C, and finds none when it is empty. The spawner
@@ -715,6 +746,31 @@ static uint8_t totem_note(GBContext *ctx, uint16_t addr, uint8_t value) {
     return (uint8_t)(stone >> ((addr & 1) ? 8 : 0));
 }
 
+/* Sky's crow (keep_box above). A state saved after the crow was lost has its
+ * door waiting for CA9C to reach 4 (15:5873-587F) while CA9C is 1 and no
+ * crow runs its script (15:5A37-5B67; it sets CA9C to 2 on its way out). The
+ * user's state1 on 2026-09-27 (1920x1080, beside the door) was saved so.
+ * Loaded with the view on, the door goes back to 15:585E on the next script
+ * pass (+16 = $0080, as 06:473D starts a script), and its call to 15:591F
+ * makes the crow again. */
+#define CROW_PROGRESS 0xa9c   /* CA9C in C000-CFFF */
+static unsigned crows_restored;
+static void restore_crow(GBContext *ctx) {
+    if (ctx->wram[CROW_PROGRESS] != 1) return;
+    int door = -1;
+    for (int i = 0; i < shantae_slot_count(ctx); ++i) {
+        const unsigned o = shantae_slot_addr(i), pc = slot_word(ctx, o + 2);
+        if (slot_byte(ctx, o) == 0xFF || slot_byte(ctx, o + 4) != 0x15) continue;
+        if (pc >= 0x5a37 && pc < 0x5b68) return;
+        if (pc >= 0x5873 && pc < 0x5880) door = i;
+    }
+    if (door < 0) return;
+    static const uint8_t fields[][2] = {{0x16, 0x80}, {0x17, 0x00}, {0x02, 0x5e}, {0x03, 0x58}};
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i)
+        *shantae_slot_memory(ctx, shantae_slot_addr(door) + fields[i][0]) = fields[i][1];
+    crows_restored++;
+}
+
 static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
     value = shantae_slots_read_override(ctx, addr, value);
     /* 00:1054 LD A,(HL): the record's flag (generated PC 1055). */
@@ -742,14 +798,8 @@ static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
             early_releases += ctx->pc == 0x1248;   /* 00:1229's first bounds read */
             return value;
         }
-        int x, y, width, height;
-        activation_size(&width, &height);
-        const Room room = live_room(ctx);
-        view_origin(&room.box, word(ctx->hram + 0x61), word(ctx->hram + 0x63), width, height, &x, &y);
-        const int bounds[4] = {
-            at_least(x, room.box.x0) - KEEP_ACROSS, at_most(x + width, room.box.x1) + KEEP_ACROSS,
-            at_least(y, room.box.y0) - KEEP_DOWN, at_most(y + height, room.box.y1) + KEEP_DOWN,
-        };
+        const Box keep = keep_box(ctx);
+        const int bounds[4] = {keep.x0, keep.x1, keep.y0, keep.y1};
         return (uint8_t)((unsigned)bounds[(addr - 0xffb5) / 2] >> ((addr & 1) ? 0 : 8));
     }
     return value;
@@ -785,15 +835,11 @@ static void world_read_tap(GBContext *ctx, uint16_t addr) {
         }
     }
     if (ctx->pc == 0x111b && addr == 0xc9f8) {
-        int x, y, across, down, width, height;
-        activation_size(&width, &height);
-        const Room room = live_room(ctx);
-        view_origin(&room.box, word(ctx->hram + 0x61), word(ctx->hram + 0x63), width, height, &x, &y);
-        activation_guard(width, height, &across, &down);
-        spawn_bounds[0] = clamp(at_least(x - across, room.box.x0 - SPAWN_MARGIN), 0, 8191);
-        spawn_bounds[1] = clamp(at_least(y - down, room.box.y0 - SPAWN_MARGIN), 0, 8191);
-        spawn_bounds[2] = clamp(at_most(x + width + across, room.box.x1 + SPAWN_MARGIN), 0, 8191);
-        spawn_bounds[3] = clamp(at_most(y + height + down, room.box.y1 + SPAWN_MARGIN), 0, 8191);
+        const Box spawn = spawn_box(ctx);
+        spawn_bounds[0] = clamp(spawn.x0, 0, 8191);
+        spawn_bounds[1] = clamp(spawn.y0, 0, 8191);
+        spawn_bounds[2] = clamp(spawn.x1, 0, 8191);
+        spawn_bounds[3] = clamp(spawn.y1, 0, 8191);
         /* The guest visits a 2x2 sector batch. Cycle batches when the larger
          * rectangle crosses more sectors. The guard covers the short latency. */
         int nx = ((spawn_bounds[2] >> 8) - (spawn_bounds[0] >> 8) + 2) / 2;

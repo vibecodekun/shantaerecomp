@@ -817,6 +817,11 @@ void shantae_view_init(GBContext *ctx) {
 
 int shantae_view_dispatch(GBContext *ctx, uint16_t addr) { return fill_dispatch(ctx, addr); }
 
+/* A save state file was loaded (extras.c): mend what the view lost in it. */
+void shantae_view_state_file_loaded(GBContext *ctx) {
+    if (gb_custom_render == render && ctx->wram) restore_crow(ctx);
+}
+
 int shantae_view_town(const GBContext *ctx) { return ctx->wram && town_room(ctx->wram); }
 
 /* The next presented frame resolves the new request (platform_sdl.cpp). */
@@ -841,6 +846,32 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
                                  (unsigned long long)s_ctx->frame_hold.holds,
                                  (unsigned long long)s_ctx->frame_hold.limit_hits, fresh, original,
                                  early_moves, replays);
+        return 1;
+    }
+    if (!strcmp(cmd, "shantae_flight") && s_ctx && s_ctx->wram) {
+        /* The debug flight without debug mode. 06:46E2, which the player's
+         * movement routines call in normal control, returns at 06:472E unless
+         * CC04 is set; with it and Select+A held, 06:473D starts the flight
+         * script 06:71B5 on the next script pass (+16 = $0080, script at
+         * +2-+4, +5 = $FF). The script installs the callback 06:71D4: 4 pixels
+         * a frame with the D-pad, through walls, no room exits; Select ends it
+         * (06:7246, script 06:49F2) without asking for CC04. Setting CC04
+         * would also open the scene grid from Select in the inventory
+         * (05:5A43) and have 0A:4468 skip the save file (04:4D55, 04:4CF1),
+         * so this writes what 06:473D writes and leaves CC04 as it is. */
+        const unsigned player = word(s_ctx->wram + 0xa13);
+        uint8_t *p = shantae_slot_index(s_ctx, player) >= 0 ? shantae_slot_memory(s_ctx, player) : NULL;
+        if (!p || *p == 0xFF) {
+            gb_debug_server_send_fmt("{\"id\":%d,\"ok\":false,\"error\":\"no player object at CA13 (%04X)\"}", id,
+                                     player);
+            return 1;
+        }
+        const unsigned bank = slot_byte(s_ctx, player + 4), pc = slot_word(s_ctx, player + 2);
+        static const uint8_t fields[][2] = {{0x16, 0x80}, {0x17, 0x00}, {0x02, 0xb5}, {0x03, 0x71}, {0x04, 0x06},
+                                            {0x05, 0xff}};
+        for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i)
+            *shantae_slot_memory(s_ctx, player + fields[i][0]) = fields[i][1];
+        gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"player\":%u,\"was\":[%u,%u]}", id, player, bank, pc);
         return 1;
     }
     if (!strcmp(cmd, "shantae_slots") && s_ctx && s_ctx->wram) {
@@ -891,13 +922,13 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
      * the one the last picture showed while easing to it. */
     Room room = {{0, 0, 0, 0}, 0, {0}};
     if (s_ctx && s_ctx->wram) room = room_at(s_ctx, wram, camera_x, camera_y, status_bar(lcdc, window_x, window_y), 1);
-    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d]}",
+    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"crows\":%u,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d]}",
                              id, ready, expanded, camera_x, camera_y, scroll_x, scroll_y, committed, commit_ly, line0_scx, line0_scy, widened, visible.count, oam_checked, oam_matched,
                              bg_visible.count, background_checked, background_matched, map_checked, map_matched, slots, free, spawn_waits, encounter_waits, early_releases, doors_restored,
                              counts.moves, counts.layered, counts.drawn, counts.upgrades, counts.reaped,
                              counts.node_pools, counts.node_upgrades, counts.node_repairs, counts.slot_repairs,
                              counts.children_freed, counts.town_tables, s_ctx ? shantae_view_town(s_ctx) : 0,
-                             s_ctx && s_ctx->wram ? activation_widened(s_ctx) : 0, fills, budget_reads,
+                             s_ctx && s_ctx->wram ? activation_widened(s_ctx) : 0, fills, budget_reads, crows_restored,
                              gb_custom_width, gb_custom_height, zoom, zoom_target, room.box.x0, room.box.y0,
                              room.box.x1, room.box.y1, room.masked, room_shown.x0, room_shown.y0,
                              room_shown.x1, room_shown.y1);

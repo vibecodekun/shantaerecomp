@@ -531,6 +531,7 @@ static void state_file_loaded(GBContext *ctx) {
     s->sprite.built_dx = (uint16_t)ram16(ctx->wram + 0x9D2);
     s->sprite.built_dy = (uint16_t)ram16(ctx->wram + 0x9D4);
     shantae_slots_state_loaded(ctx);
+    shantae_view_state_file_loaded(ctx);
 }
 
 void game_on_init(struct GBContext *ctx) {
