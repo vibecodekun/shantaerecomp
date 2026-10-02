@@ -21,7 +21,8 @@ size_t shantae_view_state_size(void);
 void shantae_view_state_save(void *out);
 void shantae_view_state_load(const void *in);
 /* A save state file was loaded: mend what the view lost in states saved
- * before a fix (Sky's crow at the desert labyrinth). */
+ * before a fix (Sky's crow at the desert labyrinth, an eye's jar in the third
+ * labyrinth). */
 void shantae_view_state_file_loaded(struct GBContext *ctx);
 
 /* View size in game pixels, including the 16-pixel status bar. The original

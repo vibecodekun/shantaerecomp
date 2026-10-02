@@ -517,6 +517,101 @@ safely and does not disable the expanded view.
   stones, so this reads what the original would; it applies whenever the
   view is on, which also mends states saved with the damage.
 
+- Eyes: the labyrinth of map 5E:8F (records in bank 92; the third labyrinth,
+  its keys in CA87) has five eye puzzles. A jar (object 0A:4138, script
+  14:5BEC) holds an eye; a whip breaks it (callback 14:5C4E) and the eye comes
+  out (14:5D60: a slot through 00:0C2D, script 14:5E16, callback 14:5E48, no
+  record). Each whip knocks the eye on (14:5A15: 1.25 pixels a frame across,
+  4 up) until it meets an open socket (0A:413C, script 14:5F7C) of the statue
+  (0A:4140, 0A:4148), which takes it (14:5BBB) when the socket's middle is in
+  the eye's box; a whip at the socket brings it out again (14:607B), and the
+  statue gives its key once its sockets hold eyes of their colours (the
+  count at C04A + puzzle, kept in C052 +). Jars and sockets take their puzzle
+  (+20) and eye (+21, from 1) from their records and keep their state in the
+  three bytes after the record's flag (WRAM bank 4): whether a jar's eye has
+  gone into a socket or which eye a socket holds, and the eye's colour. The
+  puzzles: 1 at 5704-5896,4744 (two eyes, two sockets,
+  statue 0A:4148), 2 at 6504,5288, 3 at 1376,4976, 4 at 2464,5776 and 5 at
+  4936,5768.
+
+  *Box.* An object's collision box (+47 to +56) comes with its frames
+  (00:2975), and the eye's script waits for its frame phase (op 2A at 14:5E2D
+  and 14:5E3C: FFB2 & 7, so none to seven frames) before it sets them (op 0C,
+  9A:6D30). Its callback moves it against the map meanwhile (14:5E8C: gravity,
+  04:76C4 across, 04:76FA down) with the box the slot's last object left;
+  01:4DB0 clears none of it. The allocator hands out the slot freed last
+  (00:12E7 puts it at the head of the list). In the original that is something
+  the camera has just left behind, since everything outside its bounds is
+  released as Shantae walks; the view keeps those alive, so it is the last
+  thing that died. In the user's state1 on 2026-10-01 (1920x1080, beside
+  puzzle 2's jar, `logs/states/eye-puzzle.state`) the slot was that of an
+  enemy (0A:4124, record 6C20, 32x48) from 600 pixels back, whose box reaches
+  47 pixels down, into the floor under the jar's table: 00:35E9 took the
+  floor for a wall and put the eye 8 pixels left every frame it waited.
+  Whipping the jar on eight successive frames left it 5 to 53 pixels left of
+  the jar on seven of them, in the room's wall from 29 on, where its own box
+  then held it or, from 37, let it fall out of the room: released 144 pixels
+  below the camera (Reach, below), with the jar left empty. The eye's callback now starts
+  (14:5E4D, its read of +67) with its own box while it has no frames (+2E =
+  FF), and it settles on the table where the jar was from every phase, as it
+  does in the original view.
+
+  *Lists.* Three are kept by eye, not by puzzle, and every puzzle numbers its
+  eyes from 1:
+  - C022 + eye: the eye is out (set at 14:5DA4 as it is made, cleared at
+    14:5E8A as it is released or taken). A jar reads it as it spawns (14:5C2C)
+    and stays empty while its eye is out; a socket that holds an eye reads it
+    (14:5FA3) and is open while that eye is out.
+  - C02A + 2 x eye: the jar's state, noted as the jar spawns (14:5C4A). A
+    released eye goes back into its jar through it, with its colour (14:5E6C).
+  - C03A and C03C: the open sockets. 14:5A58 notes a socket in the first empty
+    word from C03A on, however far that is; the socket clears its word when it
+    takes an eye or is released (14:5BBB, 14:5FF7); the eye tries the two
+    (14:5B18) every fourth frame.
+
+  The original never has two puzzles within reach (the nearest are 600
+  pixels apart). The 1920x1080 view by puzzle 2's jar has three: its own,
+  puzzle 5 and puzzle 1, four sockets. The state had them noted at C03A-C041
+  with the room's own last, where no eye looks, so the socket never took the
+  eye. A jar that spawned while another puzzle's eye 1 was out stayed empty,
+  and an eye released while another puzzle's jar was the one noted went into
+  that jar: with puzzle 1's jar respawned, puzzle 2's eye put its colour, 5,
+  in D1B6, and an eye of that colour never changes, so puzzle 1, whose
+  sockets want colour 2, could no longer be solved.
+
+  Each of those reads now answers for the reader's own puzzle: whether a
+  live eye of that number from the puzzle is out; the state of the puzzle's
+  jar for that eye, from its record (the map's jar and socket records are
+  found once, through the record directory C39A/C39B); the puzzle's open
+  sockets (waiting in 14:5FBF-5FCA with +18 clear), in slot order. An eye's
+  puzzle is that of the jar or socket it came out of, whose state it keeps
+  at +64 (14:5DD1). A socket looking for an empty word (14:5A5B, 14:5A5C)
+  sees only its own puzzle's other open socket, so the list stays the two
+  words it is and no longer runs on over C03E +. With one puzzle about, as
+  in the original, these are what the lists hold; they apply whenever the
+  view is on, which also mends states saved with the damage. The reads are
+  by generated PC: an `LD A,(HL+)` reads at its own address, the `LD r,(HL)`
+  after it at one past its own.
+
+  *Reach.* The eye is released by bounds of its own (14:5935 tests C082-C089,
+  which 14:5896 sets to the camera's screen and 160 across, 144 down, where
+  everything else has 80 and 72), and goes back into its jar when it is. The
+  jar is only empty or full as it spawns, and the view keeps it: with the eye
+  out, 300 pixels away and back found the jar empty and no eye, until the jar
+  itself had been left behind, most of a view away. The eye's
+  bounds are now the view's (the spawn rectangle with the original's slack)
+  with the same 80 and 72 more.
+
+  A state saved after an eye was lost to the box (it fell out of the room
+  and was released) has the jar in its empty loop (14:5C11-5C20) while its
+  state has the eye back in it and no such eye of its puzzle is out, and the
+  jar stayed empty until it had been left most of a view behind. A state file
+  loaded with the view on has such a jar start its script again (+16 =
+  $0080, as the crow's door does), so it is full; a jar whose eye is out or
+  in a socket is left as it is. `eyes` in `shantae_view_info` counts the list
+  reads answered other than the list held, `eye_boxes` the eyes given their
+  box and `jars` the jars started again.
+
 - Budgets: some spawners share a count of what they have made (a WRAM byte
   raised as each is made) and make no more at its limit; what they made
   lowers it when retention releases it (a callback that asks 00:12B2 and then
@@ -712,6 +807,25 @@ python tools/check_budgets.py
 # be on the door after each. --native flies them in the original view.
 python tools/check_crow.py
 python tools/check_crow.py --native --phases 3
+# The third labyrinth's eye puzzle (the user's state1 on 2026-10-01,
+# 1920x1080, beside puzzle 2's jar with puzzles 1 and 5 awake). Whipping the
+# jar on each of eight successive frames, the eye settles on the table where
+# the jar was (it was put 5 to 53 pixels left on seven of them, into the
+# wall). Then the puzzle: a standing whip from the wall on the left knocks
+# the eye across the room to rest at 6572,5317, a crouching whip beside it
+# sends it up through the socket, the statue opens, and walking into the key
+# takes it (CA87 0 -> 1). The debug flight 300 pixels left and back finds the
+# eye still on the table; flying down until puzzle 1's first jar is released
+# and back until it spawns again finds that jar full, and flying left until
+# the eye is released puts it back in its own jar (D1B9, D1BA = 00, 05) and
+# leaves puzzle 1's (D1B5, D1B6) alone. logs/states/eye-lost.state (saved by
+# the build before the fix, 83 frames after the whip: the jar empty, the eye
+# fallen out of the room and back in the jar by its state) loads with the jar
+# full again (`jars` 1) and plays the puzzle through. --native plays the
+# puzzle in the original view with the room's socket noted by hand at C03A:
+# the eye takes the same path.
+python tools/check_eyes.py
+python tools/check_eyes.py --native
 ```
 
 `--room-zoom` writes `room_zoom` to the isolated `shantae.ini` and `--window`
@@ -857,7 +971,18 @@ retention keeping the spawn rectangle with the original's slack past it (a
 door the rectangle just reaches and the crow it makes),
 a totem's pedestal reading its own stones (a flipping one too; not another
 totem's noted over them, nor a fireball in a released stone's slot; the note
-when it has none), spawner budgets (the count less what the original would
+when it has none), the eye puzzles (an eye with no frames given its own box
+at its callback's first read, once; a jar and a socket reading whether their
+own puzzle's eye of that number is out, from a jar or a socket and at A000,
+not another puzzle's, a freed one or another script in its slot; a released
+eye's jar from its own puzzle's record, whichever was noted; the eye trying
+its own puzzle's open sockets in slot order, not one taking an eye or filled;
+a socket finding a word empty unless its puzzle's other open socket is
+there; the eye's own bounds following the view's with 80 and 72 more; an eye
+of no record, other reads, other banks and an unwidened room left alone; a
+loaded state's empty jar started again when its eye is in it, not when the
+eye is out or in a socket, nor a full jar, nor with the view off),
+spawner budgets (the count less what the original would
 have released, up to the allowance and in an A000 slot too, one between
 states still counted, no more than the limit, a spawner the original would
 not run reading the count, the swamp creatures' op 98 by its DE, and other

@@ -746,6 +746,239 @@ static uint8_t totem_note(GBContext *ctx, uint16_t addr, uint8_t value) {
     return (uint8_t)(stone >> ((addr & 1) ? 8 : 0));
 }
 
+/* Eyes. The labyrinth of map 5E:8F (records in bank 92) has five eye puzzles.
+ * A jar (object 0A:4138, script 14:5BEC) holds an eye; a whip breaks it
+ * (callback 14:5C4E) and the eye comes out (14:5D60: a slot through 00:0C2D,
+ * script 14:5E16, callback 14:5E48, no record). Each whip knocks the eye on
+ * (14:5A15) until it meets an open socket (0A:413C, script 14:5F7C) of the
+ * statue (0A:4140, 0A:4148), which takes it (14:5BBB); a whip at the socket
+ * brings it out again (14:607B), and the statue gives its key once its
+ * sockets hold eyes of their colours. Jars and sockets take their puzzle (+20)
+ * and eye (+21, from 1) from their records and keep their state in the three
+ * bytes after the record's flag (WRAM bank 4): whether a jar's eye has gone
+ * into a socket or which eye a socket holds, and the eye's colour.
+ *
+ * Box. An object's collision box (+47 to +56) comes with its frames
+ * (00:2975), and the eye's script waits for its frame phase (op 2A at
+ * 14:5E2D and 14:5E3C, none to seven frames) before it sets them (op 0C,
+ * 9A:6D30). Its callback moves it against the map meanwhile (14:5E8C:
+ * gravity, 04:76C4, 04:76FA) with the box the slot's last object left. The
+ * allocator (01:4DB0) hands out the slot freed last. In the original that is
+ * something the camera has just left behind, since everything outside its
+ * bounds is released as Shantae walks; the view keeps those alive, so it is
+ * the last thing that died. In the user's state on 2026-10-01 (1920x1080,
+ * beside the jar at 6504,5288) that was an enemy (0A:4124, 32x48) from 600
+ * pixels back, whose box reaches 47 pixels down, into the floor under the
+ * jar's table: 00:35E9 took the floor for a wall and put the eye 8 pixels
+ * left every frame it waited, 5 to 53 in all by the frame of the whip, into
+ * the room's wall, where its own box then let it fall out of the room. The
+ * eye's callback now starts with its own box while it has no frames (+2E =
+ * FF).
+ *
+ * Lists. Three are kept by eye, not by puzzle, and every puzzle numbers its
+ * eyes from 1:
+ * - C022 + eye: the eye is out (14:5DA4 as it is made, 14:5E8A as it is
+ *   released or taken). A jar reads it as it spawns (14:5C2C) and stays empty
+ *   while its eye is out; a socket that holds an eye reads it (14:5FA3) and is
+ *   open while that eye is out.
+ * - C02A + 2 x eye: the jar's state, noted as the jar spawns (14:5C4A). A
+ *   released eye goes back into its jar through it, with its colour (14:5E6C).
+ * - C03A and C03C: the open sockets. 14:5A58 notes a socket in the first empty
+ *   word from C03A on, however far that is; the socket clears its word when
+ *   it takes an eye or is released (14:5BBB, 14:5FF7); the eye tries the two
+ *   (14:5B18).
+ * The original never has two puzzles within reach (the nearest are 600 pixels
+ * apart). A 1920x1080 view by the user's jar has three: its own (puzzle 2),
+ * puzzle 5 at 4936,5768 and puzzle 1 at 5704,4744, four sockets. The state
+ * had them noted at C03A-C041 with the room's own last, where no eye looks;
+ * a jar that spawned while another puzzle's eye was out stayed empty; and an
+ * eye released while another puzzle's jar was the one noted went into that
+ * jar with its colour (puzzle 1's eyes are coloured, and one of puzzle 2's
+ * colour never changes).
+ *
+ * Each of those reads now answers for the reader's own puzzle: whether a live
+ * eye of that number from the puzzle is out; the state of the puzzle's jar
+ * for that eye, from its record; the puzzle's open sockets. An eye's puzzle is
+ * that of the jar or socket it came out of, whose state it keeps at +64
+ * (14:5DD1). A socket looking for an empty word sees only its own puzzle's
+ * other socket, so the list stays the two words it is. With one puzzle about,
+ * as in the original, these are what the lists hold.
+ *
+ * Reach. The eye is released by bounds of its own (14:5935: C082-C089, the
+ * camera's screen and 160 across, 144 down, where everything else has 80 and
+ * 72; 14:5896 sets them), and goes back into its jar when it is. The jar is
+ * only empty or full as it spawns, and the view keeps it: with the eye out,
+ * 300 pixels away and back found the jar empty and no eye, until the jar
+ * itself had been left behind. The eye's bounds are the view's (keep_box) with the same
+ * 80 and 72 more. */
+#define EYE_BANK 0x14
+#define EYE_OUT 0xc022       /* + eye */
+#define EYE_JARS 0xc02a      /* + 2 x eye */
+#define EYE_SOCKETS 0xc03a
+#define EYE_KEEP 0xc082      /* least x, greatest x, least y, greatest y */
+#define EYE_FRAMES_BANK 0x9a
+#define EYE_FRAMES 0x6d30
+#define EYE_JAR 0x0a4138
+#define EYE_SOCKET 0x0a413c
+/* The map's jar and socket records: where their state is (the byte after the
+ * flag), their puzzle and eye. Found once per record directory. */
+typedef struct { uint16_t state; uint8_t jar, puzzle, eye; } EyeRecord;
+#define MAX_EYE_RECORDS 32
+static EyeRecord eye_records[MAX_EYE_RECORDS];
+static int eye_record_count;
+static unsigned eye_records_key;   /* C39A << 8 | C39B, plus 1; 0 none */
+static unsigned eye_reads, eye_boxes;
+
+/* 00:1122 finds a sector's records at page C39A + y / 2, (y & 1) * 128 +
+ * x * 4 in bank C39B: an address and a bank, there a count and 17 bytes a
+ * record (the flag's address at +8, the object at +10, its arguments from
+ * +13). */
+static void find_eye_records(const GBContext *ctx) {
+    const unsigned page = ctx->wram[0x39a], bank = ctx->wram[0x39b], key = (page << 8 | bank) + 1;
+    if (eye_records_key == key) return;
+    eye_records_key = key;
+    eye_record_count = 0;
+    for (unsigned y = 0; y < 32; ++y)
+        for (unsigned x = 0; x < 32; ++x) {
+            const unsigned entry = ((page + (y >> 1)) & 0xFF) << 8 | (((y & 1) << 7) + x * 4);
+            if (entry < 0x4000 || entry + 2 >= 0x8000) continue;
+            const unsigned list = rom16(ctx, bank, entry), list_bank = rom8(ctx, bank, entry + 2);
+            if (list < 0x4000 || list >= 0x8000) continue;
+            const unsigned count = rom8(ctx, list_bank, list);
+            for (unsigned i = 0; i < count && list + 1 + (i + 1) * 17 <= 0x8000; ++i) {
+                const unsigned record = list + 1 + i * 17;
+                const uint32_t type = record_type(ctx, list_bank, record);
+                if (type != EYE_JAR && type != EYE_SOCKET) continue;
+                const unsigned state = (rom16(ctx, list_bank, record + 8) + 1) & 0xFFFF;
+                int known = eye_record_count == MAX_EYE_RECORDS;
+                for (int n = 0; n < eye_record_count; ++n) known |= eye_records[n].state == state;
+                if (known) continue;
+                eye_records[eye_record_count++] = (EyeRecord){(uint16_t)state, type == EYE_JAR,
+                                                             (uint8_t)rom8(ctx, list_bank, record + 13),
+                                                             (uint8_t)rom8(ctx, list_bank, record + 14)};
+            }
+        }
+}
+/* A live eye: in its script, 14:5E16-5E47. */
+static int live_eye(GBContext *ctx, unsigned o) {
+    const unsigned pc = slot_word(ctx, o + 2);
+    return shantae_slot_index(ctx, o) >= 0 && slot_byte(ctx, o) != 0xFF && slot_byte(ctx, o + 4) == EYE_BANK &&
+           pc >= 0x5e16 && pc < 0x5e48;
+}
+/* The puzzle of the jar or socket the eye at `eye` came out of, or -1. */
+static int eye_puzzle(GBContext *ctx, unsigned eye) {
+    find_eye_records(ctx);
+    const unsigned state = slot_word(ctx, eye + 0x64);
+    for (int i = 0; i < eye_record_count; ++i)
+        if (eye_records[i].state == state) return eye_records[i].puzzle;
+    return -1;
+}
+/* Whether `puzzle`'s eye of that number is out. */
+static int eye_out(GBContext *ctx, int puzzle, unsigned eye) {
+    for (int i = 0; i < shantae_slot_count(ctx); ++i) {
+        const unsigned o = shantae_slot_addr(i);
+        if (live_eye(ctx, o) && slot_byte(ctx, o + 0x21) == eye && eye_puzzle(ctx, o) == puzzle) return 1;
+    }
+    return 0;
+}
+/* The state of the jar the eye at `eye` goes back into, or 0. */
+static unsigned eye_jar(GBContext *ctx, unsigned eye) {
+    const int puzzle = eye_puzzle(ctx, eye);
+    const unsigned number = slot_byte(ctx, eye + 0x21);
+    for (int i = 0; i < eye_record_count; ++i)
+        if (eye_records[i].jar && eye_records[i].puzzle == puzzle && eye_records[i].eye == number)
+            return eye_records[i].state;
+    return 0;
+}
+/* An open socket of `puzzle`: waiting for an eye (+18) in 14:5FBF-5FCA, which
+ * it reaches as it notes itself (14:5FBB). */
+static int open_socket(GBContext *ctx, unsigned o, int puzzle) {
+    const unsigned pc = slot_word(ctx, o + 2);
+    return shantae_slot_index(ctx, o) >= 0 && slot_byte(ctx, o) != 0xFF && slot_byte(ctx, o + 4) == EYE_BANK &&
+           pc >= 0x5fbf && pc < 0x5fcb && !slot_byte(ctx, o + 0x18) && (int)slot_byte(ctx, o + 0x20) == puzzle;
+}
+/* The reads, by their generated PCs: an LD A,(HL+) reads at its own address,
+ * the LD r,(HL) after it at one past its own. */
+static uint8_t eye_read(GBContext *ctx, uint16_t addr, uint8_t value) {
+    const unsigned pc = ctx->pc, high = addr & 1;
+    unsigned answer;
+    if (addr < EYE_JARS) {
+        /* 14:5C2C and 14:5FA3, LD A,(HL+): a jar or a socket (BC) as it spawns. */
+        if ((pc != 0x5c2c && pc != 0x5fa3) || shantae_slot_index(ctx, ctx->bc) < 0) return value;
+        answer = (unsigned)eye_out(ctx, slot_byte(ctx, ctx->bc + 0x20), addr - EYE_OUT);
+    } else if (addr < EYE_SOCKETS) {
+        /* 14:5E6C LD A,(HL+) and 14:5E6D LD H,(HL): an eye (BC) being released. */
+        const unsigned jar = pc == 0x5e6c + 2 * high && shantae_slot_index(ctx, ctx->bc) >= 0 ? eye_jar(ctx, ctx->bc) : 0;
+        if (!jar) return value;
+        answer = jar >> (8 * high) & 0xFF;
+    } else if (addr < EYE_SOCKETS + 4 && pc == 0x5b20 + 2 * high) {
+        /* 14:5B20 LD A,(HL+) and 14:5B21 LD B,(HL): the eye, pushed at 14:5AC5
+         * under the count and HL, tries the socket noted here. */
+        const unsigned eye = memory16(ctx, ctx->sp + 4);
+        const int puzzle = shantae_slot_index(ctx, eye) >= 0 ? eye_puzzle(ctx, eye) : -1;
+        if (puzzle < 0) return value;
+        unsigned socket = 0;
+        for (int i = 0, place = (addr - EYE_SOCKETS) / 2; i < shantae_slot_count(ctx) && !socket; ++i)
+            if (open_socket(ctx, shantae_slot_addr(i), puzzle) && !place--) socket = shantae_slot_addr(i);
+        answer = socket >> (8 * high) & 0xFF;
+    } else if (addr < EYE_SOCKETS + 0x10 && pc == 0x5a5b + 2 * high) {
+        /* 14:5A5B LD A,(HL+) and 14:5A5C LD D,(HL): a socket (BC) looking for
+         * an empty word to note itself in. */
+        const unsigned noted = memory16(ctx, addr - high);
+        if (shantae_slot_index(ctx, ctx->bc) < 0) return value;
+        answer = noted != ctx->bc && open_socket(ctx, noted, slot_byte(ctx, ctx->bc + 0x20)) ? value : 0;
+    } else if (addr >= EYE_KEEP && addr < EYE_KEEP + 8 && pc >= 0x58d1 && pc <= 0x5934) {
+        /* 14:58D1, the eye's own retention test. */
+        if (!activation_widened(ctx)) return value;
+        const Box keep = keep_box(ctx);
+        const int bounds[4] = {keep.x0 - KEEP_ACROSS, keep.x1 + KEEP_ACROSS, keep.y0 - KEEP_DOWN, keep.y1 + KEEP_DOWN};
+        return (uint8_t)((unsigned)bounds[(addr - EYE_KEEP) / 2] >> (8 * high));
+    } else {
+        return value;
+    }
+    eye_reads += answer != value;
+    return (uint8_t)answer;
+}
+/* 14:5E4D LD A,(HL), the first thing the eye's callback (BC) reads after
+ * counting itself on: its +67 (generated PC 5E4E). */
+static void eye_tap(GBContext *ctx, uint16_t addr) {
+    const unsigned eye = ctx->bc;
+    if (ctx->pc != 0x5e4e || addr != (uint16_t)(eye + 0x67) || shantae_slot_index(ctx, eye) < 0 ||
+        slot_byte(ctx, eye + 0x2e) != 0xFF)
+        return;
+    /* As 00:2975 takes the box from the frames for the way it faces (+31). */
+    static const uint8_t fields[8] = {0x47, 0x4b, 0x49, 0x4d, 0x4f, 0x53, 0x51, 0x55};
+    const unsigned box = rom16(ctx, EYE_FRAMES_BANK, EYE_FRAMES + 2 * slot_byte(ctx, eye + 0x31)) + 0x10;
+    int changed = 0;
+    for (unsigned i = 0; i < 16; ++i) {
+        uint8_t *p = shantae_slot_memory(ctx, eye + fields[i / 2] + (i & 1));
+        const uint8_t b = (uint8_t)rom8(ctx, EYE_FRAMES_BANK, box + i);
+        changed |= *p != b;
+        *p = b;
+    }
+    eye_boxes += changed;
+}
+/* A state saved after an eye was lost that way (it fell out of the room and
+ * was released, which puts it back in its jar) has the jar in its empty loop
+ * (14:5C11-5C20) while its state has the eye in it (the byte after the flag
+ * is clear) and no such eye of its puzzle is out. A jar is only empty or
+ * full as it spawns, so it stayed empty until Shantae had left it most of a
+ * view behind. In a state file loaded with the view on, such a jar starts
+ * its script again (+16 = $0080, as 06:473D starts one) and is full. */
+static unsigned jars_restored;
+static void restore_jars(GBContext *ctx) {
+    for (int i = 0; i < shantae_slot_count(ctx); ++i) {
+        const unsigned o = shantae_slot_addr(i), pc = slot_word(ctx, o + 2), state = slot_word(ctx, o + 0x27) + 1;
+        if (slot_byte(ctx, o) == 0xFF || slot_byte(ctx, o + 4) != EYE_BANK || pc < 0x5c11 || pc >= 0x5c21) continue;
+        if (state < 0xd000 || state >= 0xe000 || ctx->wram[0x4000 + state - 0xd000]) continue;
+        if (eye_out(ctx, slot_byte(ctx, o + 0x20), slot_byte(ctx, o + 0x21))) continue;
+        static const uint8_t fields[][2] = {{0x16, 0x80}, {0x17, 0x00}, {0x02, 0xec}, {0x03, 0x5b}};
+        for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); ++f)
+            *shantae_slot_memory(ctx, o + fields[f][0]) = fields[f][1];
+        jars_restored++;
+    }
+}
+
 /* Sky's crow (keep_box above). A state saved after the crow was lost has its
  * door waiting for CA9C to reach 4 (15:5873-587F) while CA9C is 1 and no
  * crow runs its script (15:5A37-5B67; it sets CA9C to 2 on its way out). The
@@ -783,6 +1016,7 @@ static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
     if (addr >= TOTEM_NOTES && addr < TOTEM_NOTES + 2 * TOTEM_PLACES && ctx->rom_bank == 0x0c &&
         ctx->pc == TOTEM_READ_PC + 0x30 * ((addr - TOTEM_NOTES) / 2) + 2 * (addr & 1))
         return totem_note(ctx, addr, value);
+    if (ctx->rom_bank == EYE_BANK && addr >= EYE_OUT && addr < EYE_KEEP + 8) return eye_read(ctx, addr, value);
     if (addr < 0xffb5 || addr > 0xffcc || !activation_widened(ctx)) return value;
     if (addr >= 0xffc5 && addr <= 0xffcc && ctx->pc >= 0x0fc6 && ctx->pc <= 0x1058) {
         unsigned i = (addr - 0xffc5) / 2;
@@ -807,6 +1041,7 @@ static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
 
 static void world_read_tap(GBContext *ctx, uint16_t addr) {
     shantae_slots_read_tap(ctx, addr);
+    if (ctx->rom_bank == EYE_BANK) eye_tap(ctx, addr);
     if (ctx->pc >= 0x11c5 && ctx->pc <= 0x1228 && addr >= 0xffb5 && addr <= 0xffbc) {
         int slot = shantae_slot_index(ctx, ctx->bc);
         if (ctx->completed_frames != retention_frame) {
