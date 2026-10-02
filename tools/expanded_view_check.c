@@ -232,6 +232,32 @@ int main(void) {
     CHECK(render(ctx, out+1, 256, native));
     CHECK(out[1 + 60*256 + 8] != 0xff00ff00 && out[1 + 60*256 + 40] == 0xff00ff00);
     visible.count = 0;
+    /* A background object's cell is drawn from VRAM, or from the ROM where
+     * its object loaded the tile itself (the 16 bytes at 00:7101 here). World
+     * cell 13,13 is at view 36,52, left of the native picture, in the one
+     * metatile this map draws (directory 01:4000, cells 01:5000, 01:6000). */
+    wram[0x9f9] = 0x40; wram[0x9fa] = 1; hram[0x5f] = 1;
+    rom[0x4000] = 0x50; rom[0x4001] = 1; rom[0x50cd] = 0x60;
+    put16(ppu->bg_palette_ram + (2 * 4 + 0) * 2, 0x03e0);
+    put16(ppu->bg_palette_ram + (2 * 4 + 3) * 2, 0x001f);
+    frame_end(ctx);
+    bg_visible.count = 1;
+    bg_visible.tiles[0] = (BackgroundTile){13, 13, 0xe0, 0x0a, 0};
+    CHECK(render(ctx, out+1, 256, native));
+    CHECK(out[1 + 52*256 + 36] == 0xff00ff00 && out[1 + 59*256 + 43] == 0xff00ff00);
+    bg_visible.tiles[0].pattern = 0x7101;
+    CHECK(render(ctx, out+1, 256, native));
+    CHECK(out[1 + 52*256 + 36] == 0xffff0000 && out[1 + 59*256 + 43] == 0xffff0000);
+    CHECK(out[1 + 52*256 + 35] != 0xffff0000 && out[1 + 60*256 + 43] != 0xffff0000);
+    bg_visible.tiles[0].pattern = 0x7ff8;   /* past the end of the ROM: VRAM */
+    CHECK(render(ctx, out+1, 256, native));
+    CHECK(out[1 + 52*256 + 36] == 0xff00ff00);
+    bg_visible.count = 0;
+    memset(ppu->bg_palette_ram + 16, 0, 8);
+    frame_end(ctx);
+    wram[0x9f9] = wram[0x9fa] = hram[0x5f] = 0;
+    rom[0x4000] = rom[0x4001] = rom[0x50cd] = 0;
+    memset(map_pictures, 0, sizeof(map_pictures));
     put16(wram + 0x9dd, 1000); put16(wram + 0x9e1, 1000);
     camera_x = camera_y = scroll_x = scroll_y = 96;
 
@@ -1039,7 +1065,100 @@ int main(void) {
         #undef EYE
         #undef OBJECT
     }
+    /* Graphics of an object's own (VM op 2C, 00:1AD0). A picture's quarter
+     * (script 26:51AF) and a key door (26:620C) load tiles all of their kind
+     * share. The read of the load's length (00:1AEB, the object under the
+     * script's DE and the ROM bank on the stack) notes it for the slot. One
+     * the original's retention bounds (x 920-1240, y 928-1216 here) keep
+     * loads as ever; one they would have released goes on from 00:1AFA with
+     * the ROM bank back and nothing queued. Its picture's cells that use the
+     * tiles it loads are captured with the load's place in the ROM, while the
+     * slot holds the object that asked. */
+    {
+        const unsigned saved_bank = ctx->rom_bank, saved_bc = ctx->bc, saved_de = ctx->de, saved_sp = ctx->sp;
+        const size_t saved_size = ctx->rom_size;
+        uint8_t saved_bounds[8];
+        const uint8_t saved_axes = ctx->wram[0x39c];
+        memcpy(saved_bounds, ctx->hram + 0x35, 8);
+        put16(ctx->hram + 0x35, 920); put16(ctx->hram + 0x37, 1240);
+        put16(ctx->hram + 0x39, 928); put16(ctx->hram + 0x3b, 1216);
+        ctx->wram[0x39c] = 3;
+        ctx->rom_size = 0x9c * 0x4000;
+        uint8_t *const graphics = rom + 0x77 * 0x4000, *const records = rom + 0x30 * 0x4000;
+        graphics[0x0f0f] = 0x0f;   /* 77:4F0F: 16 tiles follow */
+        /* Records at 30:7000 (x and y 1000-1031) and 30:7011 (x 2000-2031),
+         * and a picture at 30:7100: tile B3 of VRAM bank 1, then of bank 0. */
+        put16(records + 0x3000, 1031); put16(records + 0x3002, 1000);
+        put16(records + 0x3004, 1031); put16(records + 0x3006, 1000);
+        put16(records + 0x3011, 2031); put16(records + 0x3013, 2000);
+        put16(records + 0x3015, 1031); put16(records + 0x3017, 1000);
+        records[0x3100] = 2; records[0x3101] = 1;
+        records[0x3102] = 0xb3; records[0x3103] = 0x08; records[0x3104] = 0xb3; records[0x3105] = 0x00;
+        #define OBJECT(slot, x, bank, pc, record) do { \
+            const unsigned o_ = shantae_slot_addr(slot); \
+            memset(shantae_slot_memory(ctx, o_), 0, SHANTAE_SLOT_SIZE); \
+            *shantae_slot_memory(ctx, o_ + 4) = bank; put_slot16(ctx, slot, 2, pc); \
+            put_slot16(ctx, slot, 0x34, x); put_slot16(ctx, slot, 0x37, 1000); \
+            *shantae_slot_memory(ctx, o_ + 0x57) = 31; *shantae_slot_memory(ctx, o_ + 0x58) = 31; \
+            *shantae_slot_memory(ctx, o_ + 0x24) = 0x30; put_slot16(ctx, slot, 0x25, record); } while (0)
+        /* Op 2C about to read the length of 77:4F0F for 8B00 in VRAM bank 1. */
+        #define ASK(slot) do { \
+            ctx->sp = 0xc800; put16(ctx->wram + 0x800, 0x2600); put16(ctx->wram + 0x804, shantae_slot_addr(slot)); \
+            ctx->rom_bank = 0x77; ctx->bc = 0x4f0f; ctx->d = 0x8b; ctx->e = 0x01; ctx->pc = 0x1aec; \
+            ctx->stopped = 0; world_read_tap(ctx, 0x4f0f); } while (0)
+        OBJECT(60, 1000, 0x26, 0x51cf, 0x7000);    /* a quarter by Shantae */
+        OBJECT(20, 2000, 0x26, 0x51cf, 0x7011);    /* another picture's, where the original has none */
+        OBJECT(121, 2000, 0x26, 0x6238, 0x7011);   /* a key door there, at A000 */
+        OBJECT(62, 2000, 0x09, 0x5381, 0x7011);    /* a script that animates the map's tiles */
+        const unsigned kept = loads_kept;
+        ASK(60);
+        CHECK(!ctx->stopped && loads[60].rom == 0x77 * 0x4000 + 0x0f10 && loads[60].first == 0x2b00 &&
+              loads[60].size == 256);
+        CHECK(!shantae_view_dispatch(ctx, 0x1aec) && ctx->sp == 0xc800 && loads_kept == kept);
+        ASK(20);
+        CHECK(ctx->stopped && loads[20].rom == loads[60].rom && loads[20].record == 0x7011);
+        ctx->stopped = 0; bank_written = 0; ticked = 0;
+        CHECK(!shantae_view_dispatch(ctx, 0x1aed));
+        CHECK(shantae_view_dispatch(ctx, 0x1aec) && ctx->pc == 0x1afa && ctx->sp == 0xc802);
+        CHECK(ctx->hram[0x11] == 0x26 && bank_written == 0x26 && ticked == 64 && loads_kept == kept + 1);
+        ASK(121);
+        CHECK(ctx->stopped && shantae_view_dispatch(ctx, 0x1aec) && loads_kept == kept + 2);
+        ASK(62);                                    /* its tiles are the map's: loaded from anywhere */
+        CHECK(!ctx->stopped && !loads[62].rom && !shantae_view_dispatch(ctx, 0x1aec));
+        widened = 0; ASK(20);
+        CHECK(!ctx->stopped && !shantae_view_dispatch(ctx, 0x1aec)); widened = 1;
+        ctx->bc = 0x4f0e; ctx->stopped = 0; loads[20].rom = 0;
+        world_read_tap(ctx, 0x4f0f);                /* another read at that PC */
+        CHECK(!ctx->stopped && !loads[20].rom);
+        ASK(20);
+        ctx->stopped = 0; ctx->hram[0x11] = 0;
+        /* Its picture (01:4F19): the cell of the tile it loaded, not the same
+         * number in VRAM bank 0; nor either with another object in the slot,
+         * or its script elsewhere. */
+        *shantae_slot_memory(ctx, shantae_slot_addr(20) + 0x2e) = 0x30; put_slot16(ctx, 20, 0x2f, 0x7100);
+        put_slot16(ctx, 20, 0x5b, 250); put_slot16(ctx, 20, 0x5f, 125);
+        ctx->rom_bank = 1; ctx->pc = 0x4f19; ctx->bc = shantae_slot_addr(20);
+        bg_pending.count = 0; world_read_tap(ctx, 0xffbd);
+        CHECK(bg_pending.count == 2 && bg_pending.tiles[0].x == 250 && bg_pending.tiles[1].x == 251);
+        CHECK(bg_pending.tiles[0].pattern == loads[20].rom + 0x30 && !bg_pending.tiles[1].pattern);
+        put_slot16(ctx, 20, 0x25, 0x7000);
+        bg_pending.count = 0; world_read_tap(ctx, 0xffbd);
+        CHECK(bg_pending.count == 2 && !bg_pending.tiles[0].pattern);
+        put_slot16(ctx, 20, 0x25, 0x7011); put_slot16(ctx, 20, 2, 0x576c);
+        bg_pending.count = 0; world_read_tap(ctx, 0xffbd);
+        CHECK(bg_pending.count == 2 && !bg_pending.tiles[0].pattern);
+        bg_pending.count = 0;
+        const int used[] = {60, 20, 121, 62};
+        for (int i = 0; i < 4; ++i) memset(shantae_slot_memory(ctx, shantae_slot_addr(used[i])), 0, SHANTAE_SLOT_SIZE);
+        memset(graphics, 0, 0x4000); memset(records, 0, 0x4000); memset(ctx->wram + 0x800, 0, 6);
+        memcpy(ctx->hram + 0x35, saved_bounds, 8); ctx->wram[0x39c] = saved_axes;
+        ctx->rom_size = saved_size;
+        ctx->rom_bank = saved_bank; ctx->bc = saved_bc; ctx->de = saved_de; ctx->sp = saved_sp; ctx->pc = 0;
+        #undef ASK
+        #undef OBJECT
+    }
     reset_view(ctx);
+    CHECK(!loads[60].rom && !loads_kept);
     CHECK(!retention_seen[0][movers[0]] && !spawn_waits && !early_releases && !doors_restored);
     test_slots = SHANTAE_ORIGINAL_SLOTS;
 
@@ -1300,6 +1419,6 @@ int main(void) {
           gb_custom_native_scaling == GB_CUSTOM_NATIVE_SCALING_MODE && gb_custom_native_scale == 1);
 
     free(out); free(rom); free(ppu); free(ctx->wram); free(ctx->hram); free(ctx);
-    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, the eye puzzles, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
+    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, the eye puzzles, graphics of an object's own, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
     return 0;
 }

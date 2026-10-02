@@ -612,6 +612,79 @@ safely and does not disable the expanded view.
   reads answered other than the list held, `eye_boxes` the eyes given their
   box and `jars` the jars started again.
 
+- Graphics of an object's own: a script loads tile graphics with VM op 2C
+  (00:1AD0: the bank and source, the VRAM bank, the destination's high byte,
+  then the wait). The byte at the source is the length in tiles less one and
+  the tiles follow it; 00:04B4 queues the copy (six bytes from C312, and the
+  VBlank handler's jump at C374 moves back one unrolled HDMA copy, 00:08A3
+  to 00:0A43, 16 a frame at most). Most such scripts animate tiles the map
+  uses and load the same frames whichever object runs them (09:5373, 1E:4C7F,
+  21:5E64, 1C:438D; 1B:630E goes by C01B and C01C). Three kinds load
+  what their own state calls for, into tiles all of their kind share:
+  - The picture puzzles of map 5B:CA (the fourth labyrinth, its keys in
+    CA88): 1 at 6304,848, 2 at 6504,280, 3 at 7784,1048, 4 at 3160,536 and 5
+    at 2016,1176. A picture is four quarters of 32x32 (object 0A:4320,
+    script 26:51AF; the puzzle in +23, the place in +21: 0 upper left, 1
+    upper right, 2 lower left, 3 lower right), each showing one of its
+    picture's four pieces by its turn (CAA0 + 4 x (puzzle - 1) + place).
+    Every fourth frame, on its own frame phase (FFB2 & 3 = place, 26:5313),
+    a quarter loads its piece's 16 tiles to 8A00 + $100 x place in VRAM bank
+    1 (the scripts from 26:53A8, 16 a puzzle: place + 4 x turn). A whip that
+    reaches it (callback 26:576C) sets +63 and raises C022; the script
+    (26:51D5) then loads five frames of turning four frames apart, raises
+    the turn (26:52F7), lowers C022, waits for it to reach 0 and looks
+    whether place n shows piece n in all four (26:52B3), which sets CAB4 +
+    puzzle - 1. The chest under the picture (0A:4324, script 26:57B7) then
+    opens (2) and the key comes out (26:5951); walking into it takes it
+    (CA88 + 1, CAB4 + puzzle - 1 = 3).
+  - The labyrinth's key doors (0A:430C, script 26:620C; 1 at 1288,416, 2 at
+    5120,1184, 3 at 3304,1648, 4 at 1464,1832, 5 at 1208,912) and those of
+    map 5E:8F (0A:415C, script 22:71CB; two of them, at 2544,6304 and
+    3600,6304, are 1056 pixels apart): 16 tiles at 8E00 in bank 1 every few
+    frames, shut (77:4F0F), opening (77:505F, 51AF, 52FF) or open (77:544F).
+    A door's state is the byte after its record's flag; touching it with a
+    key opens it (26:63DD).
+
+  The original never has two pictures or two doors within reach. The view
+  does, and each went on loading its own. Scripts run in slot order, so of
+  all the quarters at a place the one in the highest slot loaded last and
+  every picture showed its piece; every door showed the state of the door
+  in the highest slot. In the user's state1 on 2026-10-02 (1920x1080, as a
+  tinkerbat under picture 3, turned 2,3,1,0, with picture 1, solved, awake
+  1480 pixels left; `logs/states/flip-puzzle.state`) picture 3's quarters
+  were in slots 17, 42, 39 and 8 and picture 1's in 11, 47, 10 and 34: both
+  pictures showed picture 3's left half beside picture 1's right half. A
+  jump and a swipe turned picture 3's upper quarters, both pictures showed
+  the left one turning, and the right one ended on picture 1's piece
+  again. The game's own state was the
+  original's throughout (the turns, C022, CAB4); the picture could just not
+  be told from its solution. With door 5 open and door 1 shut in one view,
+  the open door was drawn with the shut door's tiles, a wall without its
+  padlock.
+
+  VRAM now keeps what the original would have loaded: an object of these
+  three scripts loads nothing while the original's retention bounds
+  (FFB5-FFBC) would have released it. The read of the load's length
+  (00:1AEB, generated PC 1AEC) stops the block, and from 00:1AEC the script
+  goes on at 00:1AFA with the ROM bank back (as 00:1AEE-1AF1 leave it) and
+  nothing queued. The same read notes for the slot what its object asked
+  for: its place in the ROM, in VRAM, its size, and the object's record. The
+  view draws such an object's picture from that (01:4F19's capture gives
+  each cell whose tile lies in the load the ROM offset of its 16 bytes;
+  the compositor draws the cell from there instead of the VRAM snapshot),
+  while the slot still holds the object that asked. For the one the
+  original has, those are the bytes VRAM holds; the others show their own.
+  The other scripts' loads are left alone: a far one keeps the map's tiles
+  moving where the original would have none awake.
+
+  The notes are rollback state, not part of a state file: for up to eight
+  frames after a state file is loaded, until each has loaded again, such
+  objects are drawn from VRAM. A state saved by an older build with another
+  picture's pieces in VRAM has the near picture's own back within four
+  frames. `loads_kept` in `shantae_view_info` counts the loads left out of
+  VRAM and `own_tiles` the cells of the last picture drawn from their
+  object's own.
+
 - Budgets: some spawners share a count of what they have made (a WRAM byte
   raised as each is made) and make no more at its limit; what they made
   lowers it when retention releases it (a callback that asks 00:12B2 and then
@@ -826,6 +899,24 @@ python tools/check_crow.py --native --phases 3
 # the eye takes the same path.
 python tools/check_eyes.py
 python tools/check_eyes.py --native
+# The fourth labyrinth's picture puzzles and key doors (the user's state1 on
+# 2026-10-02, 1920x1080, a tinkerbat under picture 3 with picture 1 awake;
+# about 2 minutes). The view plays beside the original and what the two show
+# of a thing is compared pixel for pixel in world coordinates. Loaded, VRAM
+# (8A00-8DFF, bank 1) holds picture 3's four pieces, picture 3 is shown as
+# the original shows it and picture 1 as the original shows it once flown
+# there. A jump and a swipe turn picture 3's upper quarters (CAA8, CAA9: 2,3
+# -> 3,0) and picture 1 is the same on every one of the 70 frames after.
+# Each quarter is then turned alone (a jump or a standing swipe from 7760 or
+# 7832, facing left) until the picture is whole, the views compared after
+# every swipe; the chest opens and walking into the key takes it (CA88 0 ->
+# 1, CAB6 = 3). Then the doors: door 5's state (D1E1, bank 4) set open by
+# hand and flown to 1333,700, where the view has it and door 1, shut; each
+# must look as the original shows it from beside it, and beside each, VRAM
+# (8E00, bank 1) holds that door's tiles. --native plays the puzzle to the
+# key in the original view alone.
+python tools/check_pictures.py
+python tools/check_pictures.py --native
 ```
 
 `--room-zoom` writes `room_zoom` to the isolated `shantae.ini` and `--window`
@@ -982,6 +1073,14 @@ there; the eye's own bounds following the view's with 80 and 72 more; an eye
 of no record, other reads, other banks and an unwidened room left alone; a
 loaded state's empty jar started again when its eye is in it, not when the
 eye is out or in a socket, nor a full jar, nor with the view off),
+graphics of an object's own (a load noted for its slot at 00:1AEB; a
+picture's quarter or a key door the original would have released, at A000
+too, going on from 00:1AFA with the ROM bank back and nothing queued; one
+the original keeps, a script that animates the map's tiles and an unwidened
+room loading as ever; a picture's cell captured with its place in the load,
+not the same tile number in the other VRAM bank, nor with another object in
+the slot or its script elsewhere; the compositor drawing such a cell from
+the ROM and others from VRAM),
 spawner budgets (the count less what the original would
 have released, up to the allowance and in an A000 slot too, one between
 states still counted, no more than the limit, a spawner the original would

@@ -237,6 +237,8 @@ static void reset_view(GBContext *ctx) {
     retention_frame = early_frame = 0;
     spawn_waits = early_releases = doors_restored = encounter_waits = budget_reads = 0;
     eye_reads = eye_boxes = 0;
+    memset(loads, 0, sizeof(loads));
+    loads_kept = 0;
     fill_count = fill_next = fill_valid = 0;
     fills = 0;
 }
@@ -257,7 +259,7 @@ static void reset_view(GBContext *ctx) {
     X(spawn_bounds) X(spawn_sectors) X(widened) X(widened_room) X(retention_seen) \
     X(retention_frame) X(early_answer) X(early_frame) X(spawn_waits) X(early_releases) X(doors_restored) \
     X(encounter_waits) X(fill_sectors) X(fill_count) X(fill_next) X(fill_valid) X(fill_last) X(fills) \
-    X(budget_reads) X(eye_reads) X(eye_boxes)
+    X(budget_reads) X(eye_reads) X(eye_boxes) X(loads) X(loads_kept)
 static DrawList *const view_lists[] = {&pending[0], &pending[1], &latched, &visible};
 static Background *const view_backgrounds[] = {&bg_pending, &bg_latched, &bg_visible};
 #define VIEW_COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -436,9 +438,9 @@ static void init_spread(void) {
             spread[256 + b] |= (uint64_t)((b >> i) & 1) << (8 * i);
         }
 }
-/* A map cell's pattern data in VRAM (bank included), or -1 where nothing is
- * drawn, and its attributes. */
-typedef struct { int address; unsigned attr; } Cell;
+/* A map cell's pattern data (in the VRAM snapshot, or in the ROM where its
+ * object loaded it itself), NULL where nothing is drawn, and its attributes. */
+typedef struct { const uint8_t *data; unsigned attr; } Cell;
 /* The drawn background: view columns x0..x1 and rows y0..y1 (inside the room,
  * above the status bar, at world coordinates >= 0), world position wx0/wy0 of
  * view pixel 0,0, and the cells covering it from world cell gx0,gy0. */
@@ -458,10 +460,10 @@ static int background_at(const Grid *g, int x, int y) {
     if (!filled(g, x, y)) return -1;
     int wx = g->wx0 + x, wy = g->wy0 + y;
     const Cell *c = cell_at(g, wx, wy);
-    if (c->address < 0) return -1;
+    if (!c->data) return -1;
     int py = (c->attr & 64) ? 7 - (wy & 7) : wy & 7;
     int bit = (c->attr & 32) ? wx & 7 : 7 - (wx & 7);
-    const uint8_t *p = vram + c->address + py * 2;
+    const uint8_t *p = c->data + py * 2;
     int pixel = ((p[0] >> bit) & 1) | (((p[1] >> bit) & 1) << 1);
     return ((c->attr & 7) * 4 + pixel) | ((c->attr & 128) << 1);
 }
@@ -556,7 +558,7 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
      * a window of cells from tile_x,tile_y. The buffers grow to the largest
      * view drawn (the size can change live). */
     static Cell *cells;
-    static uint16_t *overlay;
+    static int *overlay;   /* the cell's tile in bg_visible, -1 none */
     static size_t cell_capacity, overlay_capacity;
     const int overlay_w = width / 8 + 2, overlay_h = height / 8 + 2;
     size_t cell_count = (size_t)g.cols * rows, overlay_cells = (size_t)overlay_w * overlay_h;
@@ -576,29 +578,32 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
     if (!spread[1]) init_spread();
     uint32_t colors[64];
     for (int i = 0; i < 64; ++i) colors[i] = color(i < 32 ? bg_palette : obj_palette, i & 31);
-    for (size_t i = 0; i < overlay_cells; ++i) overlay[i] = 0xffff;
+    for (size_t i = 0; i < overlay_cells; ++i) overlay[i] = -1;
     int tile_x = g.wx0 / 8, tile_y = g.wy0 / 8;
     for (int i = 0; i < bg_visible.count; ++i) {
         BackgroundTile *t = &bg_visible.tiles[i];
         int x = t->x - tile_x, y = t->y - tile_y;
-        if (x >= 0 && x < overlay_w && y >= 0 && y < overlay_h) overlay[y * overlay_w + x] = t->tile | (t->attr << 8);
+        if (x >= 0 && x < overlay_w && y >= 0 && y < overlay_h) overlay[y * overlay_w + x] = i;
     }
     for (int cy = 0; cy < rows; ++cy) {
         for (int cx = 0; cx < g.cols; ++cx) {
             Cell *c = &cells[cy * g.cols + cx];
             unsigned tile, attr;
             const int wx = (g.gx0 + cx) * 8, wy = (g.gy0 + cy) * 8;
-            c->address = -1;
+            c->data = NULL;
             /* Another picture in the room's box is not the room's. */
             if (room.masked && (wx >> 8 > 31 || wy >> 8 > 31 || !(room.sectors[wy >> 8] >> (wx >> 8) & 1)))
                 continue;
             if (!world_tile(ctx, wx, wy, &tile, &attr)) continue;
             int ox = g.gx0 + cx - tile_x, oy = g.gy0 + cy - tile_y;
-            if (ox >= 0 && ox < overlay_w && oy >= 0 && oy < overlay_h && overlay[oy * overlay_w + ox] != 0xffff) {
-                tile = overlay[oy * overlay_w + ox] & 255;
-                attr = overlay[oy * overlay_w + ox] >> 8;
+            size_t pattern = 0;
+            if (ox >= 0 && ox < overlay_w && oy >= 0 && oy < overlay_h && overlay[oy * overlay_w + ox] >= 0) {
+                const BackgroundTile *t = &bg_visible.tiles[overlay[oy * overlay_w + ox]];
+                tile = t->tile;
+                attr = t->attr;
+                pattern = t->pattern;
             }
-            c->address = ((lcdc & 16) ? tile * 16 : 0x1000 + (int8_t)tile * 16) + ((attr & 8) ? 0x2000 : 0);
+            c->data = pattern && pattern + 16 <= ctx->rom_size ? ctx->rom + pattern : vram + tile_data(lcdc, tile, attr);
             c->attr = attr;
         }
     }
@@ -616,10 +621,10 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
             const Cell *c = &line[(wx >> 3) - g.gx0];
             int n = 8 - (wx & 7);
             if (n > g.x1 - x) n = g.x1 - x;
-            if (c->address < 0) {
+            if (!c->data) {
                 fill_black(row + x, n);
             } else {
-                const uint8_t *p = vram + c->address + ((c->attr & 64) ? 7 - (wy & 7) : wy & 7) * 2;
+                const uint8_t *p = c->data + ((c->attr & 64) ? 7 - (wy & 7) : wy & 7) * 2;
                 const uint64_t *table = spread + ((c->attr & 32) ? 256 : 0);
                 uint64_t pixels = (table[p[0]] | table[p[1]] << 1) >> 8 * (wx & 7);
                 const uint32_t *palette = colors + (c->attr & 7) * 4;
@@ -816,7 +821,9 @@ void shantae_view_init(GBContext *ctx) {
                 gb_custom_requested_height);
 }
 
-int shantae_view_dispatch(GBContext *ctx, uint16_t addr) { return fill_dispatch(ctx, addr); }
+int shantae_view_dispatch(GBContext *ctx, uint16_t addr) {
+    return fill_dispatch(ctx, addr) || load_dispatch(ctx, addr);
+}
 
 /* A save state file was loaded (extras.c): mend what the view lost in it. */
 void shantae_view_state_file_loaded(GBContext *ctx) {
@@ -924,14 +931,16 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
     /* The room the view presents (snapshot) as a box of camera screens, and
      * the one the last picture showed while easing to it. */
     Room room = {{0, 0, 0, 0}, 0, {0}};
+    int own_tiles = 0;   /* cells of the last picture drawn from their object's own load */
+    for (int i = 0; i < bg_visible.count; ++i) own_tiles += bg_visible.tiles[i].pattern != 0;
     if (s_ctx && s_ctx->wram) room = room_at(s_ctx, wram, camera_x, camera_y, status_bar(lcdc, window_x, window_y), 1);
-    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"crows\":%u,\"eyes\":%u,\"eye_boxes\":%u,\"jars\":%u,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d]}",
+    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"crows\":%u,\"eyes\":%u,\"eye_boxes\":%u,\"jars\":%u,\"loads_kept\":%u,\"own_tiles\":%d,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d]}",
                              id, ready, expanded, camera_x, camera_y, scroll_x, scroll_y, committed, commit_ly, line0_scx, line0_scy, widened, visible.count, oam_checked, oam_matched,
                              bg_visible.count, background_checked, background_matched, map_checked, map_matched, slots, free, spawn_waits, encounter_waits, early_releases, doors_restored,
                              counts.moves, counts.layered, counts.drawn, counts.upgrades, counts.reaped,
                              counts.node_pools, counts.node_upgrades, counts.node_repairs, counts.slot_repairs,
                              counts.children_freed, counts.town_tables, s_ctx ? shantae_view_town(s_ctx) : 0,
-                             s_ctx && s_ctx->wram ? activation_widened(s_ctx) : 0, fills, budget_reads, crows_restored, eye_reads, eye_boxes, jars_restored,
+                             s_ctx && s_ctx->wram ? activation_widened(s_ctx) : 0, fills, budget_reads, crows_restored, eye_reads, eye_boxes, jars_restored, loads_kept, own_tiles,
                              gb_custom_width, gb_custom_height, zoom, zoom_target, room.box.x0, room.box.y0,
                              room.box.x1, room.box.y1, room.masked, room_shown.x0, room_shown.y0,
                              room_shown.x1, room_shown.y1);

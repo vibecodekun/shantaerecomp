@@ -45,6 +45,7 @@ the launcher verifies it.
 | `tools/check_budgets.py` | Spawners that share a count of what they have made, with the expanded view against the original, from a cold boot |
 | `tools/check_crow.py` | Sky's crow at the desert labyrinth with the expanded view: its dialogue opens the door, and it is there however Shantae comes back, from a saved state |
 | `tools/check_eyes.py` | The third labyrinth's eye puzzle with the expanded view: the eye settles where its jar was, the socket takes it, the statue gives its key, and another puzzle in view is left alone, from a saved state |
+| `tools/check_pictures.py` | The fourth labyrinth's picture puzzles and key doors with the expanded view against the original, pixel for pixel: each picture and door shows its own state, the puzzle is solved and its key taken, from a saved state |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
@@ -205,6 +206,14 @@ the eye was let go 160 pixels off the original screen while its broken jar staye
 has its own box from the start, each puzzle reads its own eyes and sockets, and the eye is kept as
 far as the view keeps its jar. A save state taken after an eye was lost that way, with its jar
 left empty, has the jar full again when loaded with the view on.
+The fourth labyrinth's picture puzzles (four quarters, each turned by a whip until the picture
+is whole) draw their pieces into one set of tiles that every picture in the level uses, and its
+key doors do the same with their shut and open looks; the third labyrinth's doors too. The
+original only ever has one picture or door on screen. The view has several awake, all drawing
+into those tiles, so every picture showed a mix of two puzzles' pieces and they all seemed to
+turn at once: the picture in front of Shantae could not be told from its solution, and an opened
+door could look like a wall beside a shut one. Now only the one the original would have awake
+draws into the tiles, and the view draws every picture and door from its own pieces.
 Camera/physics reads and the native PPU remain unchanged.
 See [expanded-view implementation and checks](docs/expanded-view.md).
 

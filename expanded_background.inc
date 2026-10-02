@@ -1,6 +1,8 @@
 /* Shantae background rectangles (00:0F15 / 00:034E) and object activation.
- * Included after the backing-memory readers in expanded_view.c. */
-typedef struct { int x, y; uint8_t tile, attr; } BackgroundTile;
+ * Included after the backing-memory readers in expanded_view.c. `pattern` is
+ * the ROM offset of the cell's 16 bytes where its object loaded them itself
+ * (own_graphics below), 0 where VRAM has them. */
+typedef struct { int x, y; uint8_t tile, attr; uint32_t pattern; } BackgroundTile;
 #define MAX_BG_TILES 16384
 typedef struct { BackgroundTile tiles[MAX_BG_TILES]; int count; } Background;
 static Background bg_pending, bg_latched, bg_visible;
@@ -979,6 +981,107 @@ static void restore_jars(GBContext *ctx) {
     }
 }
 
+/* Graphics of an object's own. A script loads tile graphics with VM op 2C
+ * (00:1AD0: bank, source, VRAM bank, the destination's high byte, then the
+ * wait): the byte at the source is the length in tiles less one, the tiles
+ * follow it, and 00:04B4 queues the copy for the VBlank handler (00:08A3, an
+ * HDMA copy each, 16 a frame at most). Most such scripts animate tiles the
+ * map uses and load the same frames whichever object runs them. Three kinds
+ * load what their own state calls for, into tiles all of their kind share:
+ * - the picture puzzles of map 5B:CA (the fourth labyrinth; five, at
+ *   6304,848, 6504,280, 7784,1048, 3160,536 and 2016,1176). A picture is four
+ *   quarters (object 0A:4320, script 26:51AF; the puzzle in +23, the place in
+ *   +21), each showing one of the picture's four pieces by its turn (CAA0 +
+ *   4 x puzzle + place); a whip turns the quarters it reaches (callback
+ *   26:576C, five frames of turning from 26:51D5), and the chest under the
+ *   picture (0A:4324) opens once place n shows piece n. A quarter loads its
+ *   16 tiles to 8A00 + $100 x place in VRAM bank 1 every fourth frame
+ *   (26:5313) and with every frame of its turn.
+ * - the labyrinth's five key doors (0A:430C, script 26:620C) and map 5E:8F's
+ *   (0A:415C, script 22:71CB): shut, opening or open, 16 tiles at 8E00 in
+ *   bank 1 every few frames.
+ * The original never has two pictures or two doors within reach. The view
+ * does, and each kept loading its own: the one in the highest slot last, so
+ * every picture showed that one's quarter and every door that one's state.
+ * In the user's state on 2026-10-02 (1920x1080, by puzzle 3 with puzzle 1,
+ * solved, 1480 pixels left) puzzle 1's quarters 1 and 3 were in higher slots
+ * than puzzle 3's and its 0 and 2 in lower ones: both pictures showed puzzle
+ * 3's left half beside puzzle 1's right half, a whip turned puzzle 3's upper
+ * quarters and the right one went back to puzzle 1's piece, and the picture
+ * could not be told from its solution.
+ *
+ * VRAM keeps what the original would have loaded: such an object loads
+ * nothing while the original's retention bounds (FFB5-FFBC) would have
+ * released it (the script goes on from 00:1AFA with nothing queued). The view
+ * draws each one's picture from what that object last asked for, in the ROM,
+ * where its cells use the tiles it loads: the same bytes as VRAM for the one
+ * the original has, its own for the others. */
+typedef struct { uint8_t bank; uint16_t first, end; } ScriptRange;
+static const ScriptRange own_graphics[] = {
+    {0x26, 0x51af, 0x576c},   /* 0A:4320, a picture's quarter */
+    {0x26, 0x620c, 0x6293},   /* 0A:430C, a key door */
+    {0x22, 0x71cb, 0x723e},   /* 0A:415C, a key door of map 5E:8F */
+};
+#define LOAD_LENGTH_PC 0x1aec   /* 00:1AEB LD A,(BC), generated PC */
+#define LOAD_DONE_PC 0x1afa     /* 00:1AFA POP DE, after the CALL $04B4 */
+/* What the object in each slot last asked to be loaded: its place in the ROM,
+ * in VRAM (bank 1 from $2000) and its size, for the object of this record. */
+typedef struct { uint32_t rom; uint16_t first, size, record; uint8_t record_bank; } Load;
+static Load loads[SHANTAE_MAX_SLOTS];
+static unsigned loads_kept;   /* loads left out of VRAM */
+
+static int loads_own_graphics(GBContext *ctx, unsigned o) {
+    if (shantae_slot_index(ctx, o) < 0 || slot_byte(ctx, o) == 0xFF) return 0;
+    const unsigned bank = slot_byte(ctx, o + 4), pc = slot_word(ctx, o + 2);
+    for (size_t i = 0; i < sizeof(own_graphics) / sizeof(own_graphics[0]); ++i)
+        if (own_graphics[i].bank == bank && pc >= own_graphics[i].first && pc < own_graphics[i].end) return 1;
+    return 0;
+}
+/* Op 2C's read of the length at BC, the source: the ROM bank is the
+ * graphics', D and E are the destination (E's bit 0 the VRAM bank, as
+ * 00:0A3E selects it), and 00:1AD0 pushed the object under the script's DE
+ * and the ROM bank. HDMA drops the low four bits of both addresses. */
+static void load_tap(GBContext *ctx, uint16_t addr) {
+    const unsigned o = memory16(ctx, ctx->sp + 4);
+    const int slot = shantae_slot_index(ctx, o);
+    if (slot < 0) return;
+    loads[slot].rom = 0;
+    if (!loads_own_graphics(ctx, o)) return;
+    const unsigned data = (addr + 1u) & 0xfff0, size = ((rom8(ctx, ctx->rom_bank, addr) & 0x7f) + 1) * 16;
+    const size_t offset = ctx->rom_bank * 0x4000u + data - 0x4000u;
+    if (data < 0x4000 || data + size > 0x8000 || offset + size > ctx->rom_size) return;
+    loads[slot] = (Load){(uint32_t)offset, (uint16_t)((ctx->e & 1) << 13 | (ctx->d & 0x1f) << 8 | (ctx->e & 0xf0)),
+                         (uint16_t)size, (uint16_t)slot_word(ctx, o + 0x25), (uint8_t)slot_byte(ctx, o + 0x24)};
+    if (activation_widened(ctx) && released_natively(ctx, slot)) ctx->stopped = 1;   /* on to load_dispatch */
+}
+/* 00:1AEC, after that read: an object the original would have released goes
+ * on from 00:1AFA with the ROM bank back (00:1AEE-1AF1) and nothing queued. */
+static int load_dispatch(GBContext *ctx, uint16_t addr) {
+    if (addr != LOAD_LENGTH_PC) return 0;
+    const unsigned o = memory16(ctx, ctx->sp + 4);
+    const int slot = shantae_slot_index(ctx, o);
+    if (slot < 0 || !loads_own_graphics(ctx, o) || !activation_widened(ctx) || !released_natively(ctx, slot)) return 0;
+    const uint8_t bank = (uint8_t)memory8(ctx, ctx->sp + 1);   /* 00:1AE4 pushed AF */
+    ctx->sp += 2;
+    ctx->hram[0x11] = bank;
+    gb_write8(ctx, 0x2000, bank);
+    ctx->pc = LOAD_DONE_PC;
+    gb_tick(ctx, 64);   /* 00:1AEC-1AF5 */
+    loads_kept++;
+    return 1;
+}
+/* The object's own load, while the slot still holds the object that asked. */
+static const Load *own_load(GBContext *ctx, unsigned o) {
+    const int slot = shantae_slot_index(ctx, o);
+    if (slot < 0 || !loads[slot].rom || !loads_own_graphics(ctx, o)) return NULL;
+    const Load *l = &loads[slot];
+    return l->record == slot_word(ctx, o + 0x25) && l->record_bank == slot_byte(ctx, o + 0x24) ? l : NULL;
+}
+/* A background tile's pattern data in VRAM, bank 1 from $2000. */
+static unsigned tile_data(int lcdc_value, unsigned tile, unsigned attr) {
+    return ((lcdc_value & 16) ? tile * 16 : 0x1000 + (int8_t)tile * 16) + ((attr & 8) ? 0x2000 : 0);
+}
+
 /* Sky's crow (keep_box above). A state saved after the crow was lost has its
  * door waiting for CA9C to reach 4 (15:5873-587F) while CA9C is 1 and no
  * crow runs its script (15:5A37-5B67; it sets CA9C to 2 on its way out). The
@@ -1042,6 +1145,7 @@ static uint8_t read_override(GBContext *ctx, uint16_t addr, uint8_t value) {
 static void world_read_tap(GBContext *ctx, uint16_t addr) {
     shantae_slots_read_tap(ctx, addr);
     if (ctx->rom_bank == EYE_BANK) eye_tap(ctx, addr);
+    if (ctx->pc == LOAD_LENGTH_PC && addr == ctx->bc && addr >= 0x4000) load_tap(ctx, addr);
     if (ctx->pc >= 0x11c5 && ctx->pc <= 0x1228 && addr >= 0xffb5 && addr <= 0xffbc) {
         int slot = shantae_slot_index(ctx, ctx->bc);
         if (ctx->completed_frames != retention_frame) {
@@ -1060,12 +1164,17 @@ static void world_read_tap(GBContext *ctx, uint16_t addr) {
         unsigned cols = rom8(ctx, bank, ptr), rows = rom8(ctx, bank, ptr + 1);
         int x = (int16_t)memory16(ctx, obj + 0x5b), y = (int16_t)memory16(ctx, obj + 0x5f);
         if (cols && rows && cols <= 128 && rows <= 64 && ptr >= 0x4000 && ptr + 2 + cols * rows * 2 <= 0x8000) {
+            const Load *own = own_load(ctx, obj);
+            const int lcdc_now = ctx->ppu ? ((const GBPPU *)ctx->ppu)->lcdc : 0;
             for (unsigned row = 0; row < rows; ++row) for (unsigned col = 0; col < cols; ++col) {
                 if (bg_pending.count == MAX_BG_TILES) break;
                 unsigned data = ptr + 2 + (row * cols + col) * 2;
                 BackgroundTile *t = &bg_pending.tiles[bg_pending.count++];
                 t->x = x + col; t->y = y + row;
                 t->tile = rom8(ctx, bank, data); t->attr = rom8(ctx, bank, data + 1);
+                /* The tiles it loaded itself are drawn from that load. */
+                const unsigned at = tile_data(lcdc_now, t->tile, t->attr);
+                t->pattern = own && at >= own->first && at - own->first + 16 <= own->size ? own->rom + (at - own->first) : 0;
             }
         }
     }
