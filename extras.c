@@ -47,6 +47,9 @@
  * sets CB89, and the entrance puts her at the respawn point (CA1D/CA1F) a tick
  * later, after her script in the same pass. Run straight after her script, the
  * idle routine tested the water where she had drowned and she died again.
+ *
+ * "Smoother movement" (default on) is in moveset.c: its settings are kept here
+ * and its hooks are called from shantae_imm_override.
  */
 #include "game_extras.h"
 #include "gbrt.h"
@@ -54,6 +57,7 @@
 #include "platform_sdl.h"
 #include "expanded_view.h"
 #include "object_slots.h"
+#include "moveset.h"
 #include "gb_custom_view.h"
 
 #include <stdio.h>
@@ -63,6 +67,7 @@
 #define SPRITE_DMA_PC 0x0A50          /* LD A,$07 before CALL $FF80, the OAM DMA */
 #define SPRITE_HDMA_PC 0x0A7D         /* LD A,$CF: HBlank DMA of the sprite graphics */
 #define SCROLL_BUILT_PC 0x730E        /* AND $F8 after both camera routines' build (bank 3) */
+#define MOVES_PROLOGUE_PC 0x0C4B      /* LD A,$03 in 00:0C45, the movement routines */
 #define SCRIPTS_PROLOGUE_PC 0x130B    /* LD A,$03 in 00:1305, the object scripts */
 #define SCRIPTS_NEXT_SLOT_PC 0x1384   /* ADD A,$7E: on to the next object slot */
 #define SCRIPTS_RESUME_PC 0x1386      /* the instruction after it */
@@ -81,6 +86,10 @@ static int s_native_scale = 1;
 static int s_room_zoom = SHANTAE_ROOM_ZOOM_FILL;
 static int s_remove_slowdown = 1;
 static int s_reduce_input_lag = 1;
+static int s_smooth_moves = 1;
+static int s_whip_moving = SHANTAE_WHIP_SLIDE;
+static int s_air_speed_b = 1;
+static int s_fast_crawl = 1;
 
 static int clamp_int(int value, int lo, int hi) {
     return value < lo ? lo : value > hi ? hi : value;
@@ -124,6 +133,14 @@ static void load_settings(void) {
             s_remove_slowdown = value != 0;
         } else if (sscanf(line, "reduce_input_lag=%d", &value) == 1) {
             s_reduce_input_lag = value != 0;
+        } else if (sscanf(line, "smooth_moves=%d", &value) == 1) {
+            s_smooth_moves = value != 0;
+        } else if (sscanf(line, "whip_moving=%d", &value) == 1) {
+            s_whip_moving = clamp_int(value, SHANTAE_WHIP_ORIGINAL, SHANTAE_WHIP_CANCEL);
+        } else if (sscanf(line, "air_speed_b=%d", &value) == 1) {
+            s_air_speed_b = value != 0;
+        } else if (sscanf(line, "fast_crawl=%d", &value) == 1) {
+            s_fast_crawl = value != 0;
         }
     }
     fclose(f);
@@ -142,7 +159,28 @@ static void save_settings(void) {
             s_room_zoom);
     fprintf(f, "remove_slowdown=%d\n", s_remove_slowdown);
     fprintf(f, "reduce_input_lag=%d\n", s_reduce_input_lag);
+    fprintf(f, "smooth_moves=%d\nwhip_moving=%d\nair_speed_b=%d\nfast_crawl=%d\n", s_smooth_moves,
+            s_whip_moving, s_air_speed_b, s_fast_crawl);
     fclose(f);
+}
+
+int shantae_smooth_moves(void) { load_settings(); return s_smooth_moves; }
+void shantae_set_smooth_moves(int on) {
+    load_settings(); s_smooth_moves = on != 0; save_settings();
+}
+int shantae_whip_moving(void) { load_settings(); return s_whip_moving; }
+void shantae_set_whip_moving(int mode) {
+    load_settings();
+    s_whip_moving = clamp_int(mode, SHANTAE_WHIP_ORIGINAL, SHANTAE_WHIP_CANCEL);
+    save_settings();
+}
+int shantae_air_speed_b(void) { load_settings(); return s_air_speed_b; }
+void shantae_set_air_speed_b(int on) {
+    load_settings(); s_air_speed_b = on != 0; save_settings();
+}
+int shantae_fast_crawl(void) { load_settings(); return s_fast_crawl; }
+void shantae_set_fast_crawl(int on) {
+    load_settings(); s_fast_crawl = on != 0; save_settings();
 }
 
 int shantae_remove_slowdown(void) { load_settings(); return s_remove_slowdown; }
@@ -428,6 +466,14 @@ int shantae_player_move_return(GBContext *ctx) {
     return 1;
 }
 
+/* At the top of a movement routine, before it has pushed anything: whether
+ * run_player_move started it (its return address and MOVE_MARKER are on top
+ * of the stack), not 00:0C45. */
+int shantae_player_move_early(GBContext *ctx) {
+    return gb_read16(ctx, ctx->sp) == SCRIPTS_RESUME_PC &&
+           gb_read16(ctx, (uint16_t)(ctx->sp + 2)) == MOVE_MARKER;
+}
+
 /* Step hook: at 00:1386 after player_script_done stopped on the last slot, call
  * the player's movement routine the way 00:0C45 does. The joypad routine
  * (01:7C31) keeps the held buttons in FF8B, the new presses in FF8C and the
@@ -448,6 +494,7 @@ static void run_player_move(GBContext *ctx) {
     gb_push16(ctx, SCRIPTS_RESUME_PC);
     ctx->hram[0x0C] = 0;
     ctx->hram[0x0E] = 0;
+    shantae_moves_tick(ctx);   /* the scripts since may have set the run flag */
     /* As 00:0C45 calls it: SVBK 3, the routine's bank in A, FF91 and the MBC. */
     const uint8_t bank = object_slot(ctx, slot)[0x19];
     gb_write8(ctx, 0xFF70, 3);
@@ -464,6 +511,10 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     if (bank == 0 && pc == PALETTE_GBA_CHECK_PC && s_original_colors) {
         return 0xFF;
     }
+    /* "Smoother movement": the player's routines, and the run flag each pass. */
+    uint8_t value;
+    if (bank == 6 && shantae_moves_imm(ctx, pc, orig, &value)) return value;
+    if (bank == 0 && orig == 0x03 && (pc == MOVES_PROLOGUE_PC || pc == SCRIPTS_PROLOGUE_PC)) shantae_moves_tick(ctx);
     /* Match the original byte too: the generator also emits HALT-bug copies of
      * these instructions, which read the opcode as the operand. */
     if (bank == 0 && pc == SPRITE_DMA_PC && orig == 0x07) {

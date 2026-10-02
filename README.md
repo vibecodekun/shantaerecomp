@@ -4,7 +4,8 @@ Shantae (USA) recompiled to native code with [gbrecompiled](https://github.com/m
 Boots as a Game Boy Advance by default, so the GBA Enhanced extras are on (title badge, the Bandit
 Town Tinkerbat secret), while the palette loader is kept on the original GBC colors. On top of
 that: an expanded world view (an aspect ratio of your choice, or Adaptive to fill the whole
-screen), no slowdown, reduced input lag, rewind, and RetroArch shader presets through librashader.
+screen), no slowdown, reduced input lag, smoother movement (running, whipping and crawling
+without losing momentum), rewind, and RetroArch shader presets through librashader.
 
 ## Download
 
@@ -28,8 +29,9 @@ the launcher verifies it.
 | `expanded_view.c`, `expanded_background.inc` | Expanded world compositor, live background objects, and wider object activation |
 | `object_slots.c` | With the expanded view, the object table grown from 32 slots to 157 (past DFFF and at A000 in bank 3) and the collision node pool from 12 to one per slot (towns keep the original 32 and 12) |
 | `ram_native.c` | Native translations of writable JP vectors and the copied DMA routine |
-| `launcher_options.c` | Built-in GBA and expanded-view features on the launcher's Mods page |
-| `extras_ui.cpp` | In-game Shantae settings, including expanded-view size |
+| `moveset.c` | "Smoother movement": the whip slide and cancel, the run and air speed from B, and the faster crawl, as hooks in Shantae's movement routines ([docs/moveset.md](docs/moveset.md)) |
+| `launcher_options.c` | Built-in GBA, expanded-view and gameplay features on the launcher's Mods page |
+| `extras_ui.cpp` | In-game Shantae settings, including expanded-view size and the movement options |
 | `game_build.cmake` | Adds game hooks, UI, and regression targets to the generated project |
 | `generated/` | Recompiler output (not committed) — never edit; regenerate |
 | `roms/shantae.gbc` | Stock ROM (CRC32 E994B59B): you supply it; never committed |
@@ -46,7 +48,9 @@ the launcher verifies it.
 | `tools/check_crow.py` | Sky's crow at the desert labyrinth with the expanded view: its dialogue opens the door, and it is there however Shantae comes back, from a saved state |
 | `tools/check_eyes.py` | The third labyrinth's eye puzzle with the expanded view: the eye settles where its jar was, the socket takes it, the statue gives its key, and another puzzle in view is left alone, from a saved state |
 | `tools/check_pictures.py` | The fourth labyrinth's picture puzzles and key doors with the expanded view against the original, pixel for pixel: each picture and door shows its own state, the puzzle is solved and its key taken, from a saved state |
+| `tools/check_moveset.py` | Shantae's moves with "Smoother movement" beside the original, frame for frame: the whip slide and cancel, air speed, a whip that lands or slides off a ledge, the crawl; and the feature off against the previous release, from a saved state |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
+| `tools/ghidra_listing.py`, `tools/ghidra/Listing.java` | Ghidra's disassembly of ROM ranges (`6:4AA7:4B19`) from the command line: headless, read-only, far-call aware; imports the ROM into `logs/ghidra` on first use |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
 | `tools/build_windows.sh`, `tools/windows/` | Windows releases for x64, x86 and ARM64 (below): pinned msys2 libraries, CMake toolchain, DLL staging, packaging, checks |
@@ -74,7 +78,7 @@ Already cloned without `--recursive`? Run `git submodule update --init`.
 
 The generated project builds for size (MinSizeRel, the recompiled ROM code at
 `-O1`); `game_build.cmake` builds the runtime and this game's modules
-(`expanded_view.c`, `object_slots.c`, `extras.c`, `ram_native.c`) at `-O2`,
+(`expanded_view.c`, `object_slots.c`, `moveset.c`, `extras.c`, `ram_native.c`) at `-O2`,
 since the PPU, APU, timers and the expanded-view compositor run every frame.
 The ROM code keeps its own level, so this does not recompile it.
 
@@ -130,6 +134,31 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
     path.
 
   The Esc → Shantae checkbox applies it immediately.
+- **Smoother movement** (on by default): Shantae's base form keeps her momentum.
+  In the original, B is both the whip and the run: a B press on the ground is always
+  a whip, which stops her for its 24 frames, and the run only starts once B has been
+  held for 15; a jump keeps the speed she left the ground with, so a standing jump is
+  at walking speed whatever is held; a whip begun in the air and landed finishes on
+  the spot; and the crawl moves half a pixel a frame, standing up into a run when B
+  is held. With this on, holding B runs at once, and three options choose the rest
+  (details and addresses in [docs/moveset.md](docs/moveset.md)):
+  - **Whip on the move**: what B does while a direction is held, standing or crouched.
+    *Slide* (default): the whip comes out and hits as usual while she keeps moving, at
+    running speed with B held and walking speed without, turning with the D-pad; the
+    run follows without a frame at rest, a whip that lands carries on along the
+    ground, and one that slides off a ledge carries on in the air. *Cancel*: B with a
+    direction is no whip at all, she runs (or crawls on) at once, and a whip in
+    progress ends when B and a direction are held; stand still to whip. *Original*:
+    she stops for the whole whip.
+  - **Air speed**: *Hold B for running speed* (default): two pixels a frame while B is
+    held and one when it is released, jumping, falling or whipping in the air.
+    *Original*: the speed she left the ground with.
+  - **Crawl**: *Hold B for walking speed* (default): she stays down and crawls a pixel a
+    frame, twice as fast, with the animation at twice the rate. *Original*: half a
+    pixel, and B stands her up into a run.
+
+  Her other forms are untouched: their routines are in other banks. Off plays as the
+  original, frame for frame. The Esc → Shantae controls apply at once.
 - **Expanded view** (off by default): a larger world view with the original pixel
   scale and the status bar at the bottom, 256×240 (NES size) unless changed. Enable
   it on the Mods page, then launch. Its options set the size: **Adaptive** fills the
@@ -155,7 +184,9 @@ refill it, as RetroArch runs one. Saved as `emulation.preemptive_frames` in
 
 Settings are saved to `shantae.ini` next to the exe. `expanded_view=1`,
 `view_width=256` and `view_height=240` select the NES-size view; `remove_slowdown=0`
-brings the slowdown back and `reduce_input_lag=0` the original input timing. Menus and dialogue retain their original centered layout.
+brings the slowdown back and `reduce_input_lag=0` the original input timing;
+`smooth_moves=0` the original moves, with `whip_moving` (0 original, 1 slide, 2 cancel),
+`air_speed_b` and `fast_crawl` its options. Menus and dialogue retain their original centered layout.
 Towns keep the original picture, object activation and 32-slot object table
 (their building-name panel covers the bottom, their camera wraps at 640 pixels,
 and their doors are found by the low byte of the distance), so every door, label

@@ -8,6 +8,7 @@
 #include "gb_custom_view.h"
 extern "C" {
 #include "expanded_view.h"
+#include "moveset.h"
 }
 
 extern "C" int shantae_gba_enhanced(void);
@@ -52,6 +53,27 @@ void game_draw_overlay(struct GBContext *ctx) {
         shantae_set_reduce_input_lag(quick ? 1 : 0);
     }
     ImGui::TextDisabled("Sprites and Shantae's moves one frame sooner each.");
+
+    ImGui::Separator();
+    bool smooth = shantae_smooth_moves() != 0;
+    if (ImGui::Checkbox("Smoother movement", &smooth)) {
+        shantae_set_smooth_moves(smooth ? 1 : 0);
+    }
+    ImGui::TextDisabled("Holding B runs at once, on the ground and in the air.");
+    if (!smooth) ImGui::BeginDisabled();
+    // In the order of SHANTAE_WHIP_*.
+    static const char *const whips[] = {"Original: stop to whip", "Slide: whip and keep moving",
+                                        "Cancel: B and a direction runs at once"};
+    int whip = shantae_whip_moving();
+    if (ImGui::Combo("Whip on the move", &whip, whips, 3)) shantae_set_whip_moving(whip);
+    static const char *const airs[] = {"Original: set when she leaves the ground", "Hold B for running speed"};
+    int air = shantae_air_speed_b();
+    if (ImGui::Combo("Air speed", &air, airs, 2)) shantae_set_air_speed_b(air);
+    static const char *const crawls[] = {"Original", "Hold B for walking speed"};
+    int crawl = shantae_fast_crawl();
+    if (ImGui::Combo("Crawl", &crawl, crawls, 2)) shantae_set_fast_crawl(crawl);
+    ImGui::TextDisabled("Shantae's base form. Changes apply at once.");
+    if (!smooth) ImGui::EndDisabled();
 
     ImGui::Separator();
     bool expanded = shantae_expanded_view() != 0;
