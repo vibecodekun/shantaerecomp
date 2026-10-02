@@ -824,6 +824,221 @@ int main(void) {
         memset(ctx->wram + 0x004, 0, 6); ctx->rom_bank = saved_bank;
         #undef OBJECT
     }
+    /* Eyes (bank 14). A map with two puzzles, 2 and 5, each with a jar and a
+     * socket for eye 1, and a second socket of puzzle 2; their records are in
+     * one sector's list, and an eye keeps its maker's state at +64. */
+    {
+        #define OBJECT(slot, status, pc, puzzle, eye) do { \
+            const unsigned o_ = shantae_slot_addr(slot); \
+            memset(shantae_slot_memory(ctx, o_), 0, SHANTAE_SLOT_SIZE); \
+            *shantae_slot_memory(ctx, o_) = status; *shantae_slot_memory(ctx, o_ + 4) = 0x14; \
+            put_slot16(ctx, slot, 2, pc); \
+            *shantae_slot_memory(ctx, o_ + 0x20) = puzzle; *shantae_slot_memory(ctx, o_ + 0x21) = eye; } while (0)
+        #define EYE(slot, status, maker_state, number) do { \
+            OBJECT(slot, status, 0x5e45, 0x80, number); put_slot16(ctx, slot, 0x64, maker_state); } while (0)
+        #define READ16(pc_low, pc_high, addr) (ctx->pc = (pc_low), low_ = read_override(ctx, (addr), ctx->wram[(addr) - 0xc000]), \
+            ctx->pc = (pc_high), low_ | read_override(ctx, (addr) + 1, ctx->wram[(addr) + 1 - 0xc000]) << 8)
+        unsigned low_;
+        const unsigned saved_bank = ctx->rom_bank, saved_bc = ctx->bc, saved_sp = ctx->sp;
+        const size_t saved_size = ctx->rom_size;
+        uint8_t saved_39a[2];
+        memcpy(saved_39a, ctx->wram + 0x39a, 2);
+        /* The ROM past the test map's two banks (zeroed for the towns). */
+        ctx->rom_size = 0x9c * 0x4000;
+        uint8_t *const directory = rom + 0x30 * 0x4000, *const frames = rom + 0x9a * 0x4000;
+        ctx->wram[0x39a] = 0x40; ctx->wram[0x39b] = 0x30;
+        /* Sector 3,1 (page $40, $80 + 3 x 4): its list at 30:7000. */
+        put16(directory + 0x8c, 0x7000); directory[0x8e] = 0x30;
+        static const struct { uint16_t flag; uint8_t type, puzzle, eye; } records[] = {
+            {0xd1b8, 0x38, 2, 1}, {0xd1c0, 0x3c, 2, 1}, {0xd1c4, 0x38, 5, 1}, {0xd1cc, 0x3c, 5, 1},
+            {0xd2a4, 0x3c, 2, 2}, {0xd1bc, 0x40, 2, 0},
+        };
+        directory[0x3000] = 6;
+        for (int r = 0; r < 6; ++r) {
+            uint8_t *record = directory + 0x3001 + r * 17;
+            put16(record + 8, records[r].flag);
+            record[10] = records[r].type; record[11] = 0x41; record[12] = 0x0a;
+            record[13] = records[r].puzzle; record[14] = records[r].eye;
+        }
+        /* The eye's frames, 9A:6D30: the box 16 bytes into the first. */
+        put16(frames + 0x2d30, 0x6e00);
+        for (int i = 0; i < 16; ++i) frames[0x2e10 + i] = (uint8_t)(0xa0 + i);
+        eye_records_key = 0;
+        ctx->rom_bank = 0x14;
+
+        /* An eye with no frames yet starts its callback (14:5E4D reads its
+         * +67) with its own box, not the one its slot's last object left; one
+         * with frames keeps the box it has. */
+        EYE(70, 0x80, 0xd1b9, 1);
+        *shantae_slot_memory(ctx, shantae_slot_addr(70) + 0x2e) = 0xff;
+        memset(shantae_slot_memory(ctx, shantae_slot_addr(70) + 0x47), 0x2f, 16);
+        const unsigned boxes = eye_boxes;
+        ctx->bc = shantae_slot_addr(70); ctx->pc = 0x5e4d; world_read_tap(ctx, (uint16_t)(ctx->bc + 0x67));
+        CHECK(eye_boxes == boxes && *shantae_slot_memory(ctx, ctx->bc + 0x47) == 0x2f);   /* the INC (HL) before it */
+        ctx->pc = 0x5e4e; world_read_tap(ctx, (uint16_t)(ctx->bc + 0x66));
+        CHECK(eye_boxes == boxes);
+        world_read_tap(ctx, (uint16_t)(ctx->bc + 0x67));
+        static const uint8_t box_fields[8] = {0x47, 0x4b, 0x49, 0x4d, 0x4f, 0x53, 0x51, 0x55};
+        for (int i = 0; i < 16; ++i)
+            CHECK(*shantae_slot_memory(ctx, ctx->bc + box_fields[i / 2] + (i & 1)) == 0xa0 + i);
+        CHECK(eye_boxes == boxes + 1);
+        world_read_tap(ctx, (uint16_t)(ctx->bc + 0x67));
+        CHECK(eye_boxes == boxes + 1);
+        *shantae_slot_memory(ctx, ctx->bc + 0x2e) = 0x9a;
+        *shantae_slot_memory(ctx, ctx->bc + 0x47) = 0x11;
+        world_read_tap(ctx, (uint16_t)(ctx->bc + 0x67));
+        CHECK(*shantae_slot_memory(ctx, ctx->bc + 0x47) == 0x11 && eye_boxes == boxes + 1);
+
+        /* A jar (14:5C2C) or a socket that holds an eye (14:5FA3) reads
+         * whether its own puzzle's eye of that number is out: puzzle 2's eye 1
+         * is (slot 70, from its jar), puzzle 5's is not, whatever C023 says. */
+        OBJECT(60, 0x80, 0x5bec, 2, 1);   /* puzzle 2's jar, spawning */
+        OBJECT(61, 0x80, 0x5bec, 5, 1);   /* puzzle 5's */
+        ctx->pc = 0x5c2c;
+        ctx->bc = shantae_slot_addr(60); CHECK(read_override(ctx, 0xc023, 1) == 1 && read_override(ctx, 0xc023, 0) == 1);
+        ctx->bc = shantae_slot_addr(61); CHECK(read_override(ctx, 0xc023, 1) == 0 && read_override(ctx, 0xc023, 0) == 0);
+        ctx->pc = 0x5fa3; CHECK(read_override(ctx, 0xc023, 1) == 0);
+        ctx->bc = shantae_slot_addr(60); CHECK(read_override(ctx, 0xc023, 0) == 1);
+        CHECK(read_override(ctx, 0xc024, 1) == 0);                    /* its eye 2 is in */
+        EYE(122, 0, 0xd2a5, 2);                                       /* out of puzzle 2's second socket, at A000 */
+        CHECK(read_override(ctx, 0xc024, 0) == 1);
+        EYE(70, 0xff, 0xd1b9, 1);                                     /* freed */
+        CHECK(read_override(ctx, 0xc023, 1) == 0);
+        EYE(70, 0, 0xd1c1, 1);                                        /* out of puzzle 2's socket */
+        CHECK(read_override(ctx, 0xc023, 0) == 1);
+        put_slot16(ctx, 70, 2, 0x5c0b);                               /* another script in the eye's slot */
+        CHECK(read_override(ctx, 0xc023, 1) == 0);
+        EYE(70, 0, 0xd1b9, 1);
+        ctx->pc = 0x5c2d; CHECK(read_override(ctx, 0xc023, 0) == 0);   /* other reads, another bank */
+        ctx->pc = 0x5c2c; ctx->rom_bank = 0x22; CHECK(read_override(ctx, 0xc023, 0) == 0);
+        ctx->rom_bank = 0x14;
+
+        /* A released eye (14:5E6C, 14:5E6D) goes back into its own puzzle's
+         * jar, not the one noted last; an eye of no record leaves the note. */
+        put16(ctx->wram + 0x02c, 0xd1c5);                             /* puzzle 5's jar noted for eye 1 */
+        ctx->bc = shantae_slot_addr(70);
+        CHECK(READ16(0x5e6c, 0x5e6e, 0xc02c) == 0xd1b9);
+        EYE(71, 0, 0xd1cd, 1);                                        /* out of puzzle 5's socket */
+        ctx->bc = shantae_slot_addr(71);
+        put16(ctx->wram + 0x02c, 0xd1b9);
+        CHECK(READ16(0x5e6c, 0x5e6e, 0xc02c) == 0xd1c5);
+        EYE(71, 0, 0x1235, 1);
+        CHECK(READ16(0x5e6c, 0x5e6e, 0xc02c) == 0xd1b9);
+        EYE(71, 0xff, 0, 0);
+        ctx->bc = shantae_slot_addr(122);                              /* eye 2 of puzzle 2 has no jar */
+        put16(ctx->wram + 0x02e, 0xd2a1);
+        CHECK(READ16(0x5e6c, 0x5e6e, 0xc02e) == 0xd2a1);
+        ctx->bc = shantae_slot_addr(70);
+        put16(ctx->wram + 0x02c, 0xd1c5);
+        CHECK(READ16(0x5e6c, 0x5e6e, 0xc02c) == 0xd1b9);
+        CHECK(READ16(0x5e6d, 0x5e6f, 0xc02c) == 0xd1c5);              /* other reads of the note */
+
+        /* The eye (pushed at 14:5AC5 under the count and HL) tries its own
+         * puzzle's open sockets (14:5B20, 14:5B21) whatever the list holds:
+         * not another puzzle's, one that has just taken an eye, or one in its
+         * filled script. */
+        OBJECT(62, 0x80, 0x5fc2, 5, 1);    /* puzzle 5's socket, open */
+        OBJECT(63, 0x80, 0x5fc2, 2, 2);    /* puzzle 2's second socket, taking an eye */
+        *shantae_slot_memory(ctx, shantae_slot_addr(63) + 0x18) = 1;
+        OBJECT(64, 0, 0x604b, 2, 1);       /* a socket of puzzle 2 holding an eye */
+        OBJECT(121, 0x80, 0x5fc2, 2, 1);   /* puzzle 2's socket, open, at A000 */
+        put16(ctx->wram + 0x03a, shantae_slot_addr(62)); put16(ctx->wram + 0x03c, shantae_slot_addr(63));
+        put16(ctx->wram + 0x03e, shantae_slot_addr(64)); put16(ctx->wram + 0x040, shantae_slot_addr(121));
+        ctx->sp = 0xc800; put16(ctx->wram + 0x804, shantae_slot_addr(70)); ctx->bc = 2;
+        const unsigned reads = eye_reads;
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03a) == shantae_slot_addr(121));
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03c) == 0);
+        CHECK(eye_reads == reads + 4);
+        *shantae_slot_memory(ctx, shantae_slot_addr(63) + 0x18) = 0;
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03a) == shantae_slot_addr(63));
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03c) == shantae_slot_addr(121));
+        EYE(71, 0, 0xd1c5, 1);             /* puzzle 5's eye */
+        put16(ctx->wram + 0x804, shantae_slot_addr(71));
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03a) == shantae_slot_addr(62));
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03c) == 0);
+        EYE(71, 0, 0x1235, 1);             /* of no record: the list as it is */
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03a) == shantae_slot_addr(62));
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03c) == shantae_slot_addr(63));
+        put16(ctx->wram + 0x804, shantae_slot_addr(70));
+        CHECK(READ16(0x5b20, 0x5b22, 0xc03a) == shantae_slot_addr(63));
+        CHECK(READ16(0x5b21, 0x5b23, 0xc03a) == shantae_slot_addr(62));   /* other reads */
+
+        /* A socket noting itself (14:5A5B, 14:5A5C) finds a word empty unless
+         * its own puzzle's other open socket is there, so the list stays two
+         * words. */
+        ctx->bc = shantae_slot_addr(121);
+        CHECK(READ16(0x5a5b, 0x5a5d, 0xc03a) == 0);                       /* another puzzle's */
+        put16(ctx->wram + 0x03a, shantae_slot_addr(63));
+        CHECK(READ16(0x5a5b, 0x5a5d, 0xc03a) == shantae_slot_addr(63));   /* its puzzle's other */
+        put16(ctx->wram + 0x03c, shantae_slot_addr(62));
+        CHECK(READ16(0x5a5b, 0x5a5d, 0xc03c) == 0);
+        put16(ctx->wram + 0x03c, shantae_slot_addr(121));
+        CHECK(READ16(0x5a5b, 0x5a5d, 0xc03c) == 0);                       /* itself */
+        CHECK(READ16(0x5a5b, 0x5a5d, 0xc03e) == 0);                       /* holding an eye */
+        ctx->bc = shantae_slot_addr(62);
+        CHECK(READ16(0x5a5b, 0x5a5d, 0xc03a) == 0 && READ16(0x5a5b, 0x5a5d, 0xc040) == 0);
+
+        /* The eye's own retention bounds (14:58D1 reads C082-C089) are the
+         * view's with the 80 and 72 they have over the original's; a room the
+         * view does not widen keeps them. */
+        {
+            const Box keep = keep_box(ctx);
+            const int expected[4] = {keep.x0 - 80, keep.x1 + 80, keep.y0 - 72, keep.y1 + 72};
+            ctx->bc = shantae_slot_addr(70);
+            for (int i = 0; i < 4; ++i) {
+                put16(ctx->wram + 0x082 + 2 * i, 0x1111 * (i + 1));
+                CHECK(READ16(0x58e3, 0x58e5, 0xc082 + 2 * i) == (uint16_t)expected[i]);
+            }
+            CHECK(READ16(0x5934, 0x58d1, 0xc084) == (uint16_t)expected[1]);
+            CHECK(READ16(0x5935, 0x58d0, 0xc084) == 0x2222);
+            widened = 0; CHECK(READ16(0x58e3, 0x58e5, 0xc084) == 0x2222); widened = 1;
+        }
+
+        /* A state file loaded with a jar empty (14:5C11-5C20) while its eye
+         * is in it (the byte after its flag in bank 4 clear, no such eye of
+         * its puzzle out) starts the jar's script again; one whose eye is out
+         * or has gone into a socket stays as it is, and so does a full one. */
+        {
+            #define JAR(slot, pc, puzzle, flag) do { OBJECT(slot, 0, pc, puzzle, 1); put_slot16(ctx, slot, 0x27, flag);                 put_slot16(ctx, slot, 0x16, 0x0123); } while (0)
+            #define SCRIPT(slot) (*shantae_slot_memory(ctx, shantae_slot_addr(slot) + 2) |                                   *shantae_slot_memory(ctx, shantae_slot_addr(slot) + 3) << 8)
+            #define STARTED(slot) (SCRIPT(slot) == 0x5bec && *shantae_slot_memory(ctx, shantae_slot_addr(slot) + 0x16) == 0x80 &&                                    *shantae_slot_memory(ctx, shantae_slot_addr(slot) + 0x17) == 0)
+            EYE(70, 0, 0xd1b9, 1);                  /* puzzle 2's eye 1 is out */
+            JAR(60, 0x5c1e, 2, 0xd1b8);             /* so its jar is rightly empty */
+            JAR(61, 0x5c15, 5, 0xd1c4);             /* puzzle 5's is empty with its eye in it */
+            JAR(65, 0x5c1e, 5, 0xd1d0);             /* one whose eye a socket holds */
+            ctx->wram[0x4000 + 0x1d1] = 1;
+            JAR(121, 0x5c0b, 5, 0xd1c4);            /* a full one */
+            const unsigned jars = jars_restored;
+            const GBCustomRender saved_render = gb_custom_render;
+            shantae_view_state_file_loaded(ctx);
+            CHECK(jars_restored == jars && SCRIPT(61) == 0x5c15);   /* only with the view on */
+            gb_custom_render = render;
+            shantae_view_state_file_loaded(ctx);
+            CHECK(jars_restored == jars + 1 && STARTED(61));
+            CHECK(SCRIPT(60) == 0x5c1e && SCRIPT(65) == 0x5c1e && SCRIPT(121) == 0x5c0b);
+            EYE(70, 0xff, 0, 0);                    /* the eye gone: puzzle 2's jar too */
+            shantae_view_state_file_loaded(ctx);
+            CHECK(jars_restored == jars + 2 && STARTED(60) && SCRIPT(65) == 0x5c1e);
+            ctx->wram[0x4000 + 0x1d1] = 0;
+            gb_custom_render = saved_render;
+            memset(shantae_slot_memory(ctx, shantae_slot_addr(65)), 0, SHANTAE_SLOT_SIZE);
+            #undef STARTED
+            #undef SCRIPT
+            #undef JAR
+        }
+
+        const int used[] = {60, 61, 62, 63, 64, 70, 71, 121, 122};
+        for (int i = 0; i < 9; ++i) memset(shantae_slot_memory(ctx, shantae_slot_addr(used[i])), 0, SHANTAE_SLOT_SIZE);
+        memset(ctx->wram + 0x022, 0, 0x70);
+        memcpy(ctx->wram + 0x39a, saved_39a, 2);
+        memset(directory, 0, 0x4000); memset(frames, 0, 0x4000);
+        ctx->rom_size = saved_size;
+        eye_records_key = 0;
+        ctx->rom_bank = saved_bank; ctx->bc = saved_bc; ctx->sp = saved_sp;
+        #undef READ16
+        #undef EYE
+        #undef OBJECT
+    }
     reset_view(ctx);
     CHECK(!retention_seen[0][movers[0]] && !spawn_waits && !early_releases && !doors_restored);
     test_slots = SHANTAE_ORIGINAL_SLOTS;
@@ -1085,6 +1300,6 @@ int main(void) {
           gb_custom_native_scaling == GB_CUSTOM_NATIVE_SCALING_MODE && gb_custom_native_scale == 1);
 
     free(out); free(rom); free(ppu); free(ctx->wram); free(ctx->hram); free(ctx);
-    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
+    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, the eye puzzles, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
     return 0;
 }

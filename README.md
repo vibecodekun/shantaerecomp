@@ -44,6 +44,7 @@ the launcher verifies it.
 | `tools/check_totem.py` | The labyrinth's totem puzzle with the expanded view: the orb, then the key, from a saved state |
 | `tools/check_budgets.py` | Spawners that share a count of what they have made, with the expanded view against the original, from a cold boot |
 | `tools/check_crow.py` | Sky's crow at the desert labyrinth with the expanded view: its dialogue opens the door, and it is there however Shantae comes back, from a saved state |
+| `tools/check_eyes.py` | The third labyrinth's eye puzzle with the expanded view: the eye settles where its jar was, the socket takes it, the statue gives its key, and another puzzle in view is left alone, from a saved state |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
@@ -193,6 +194,17 @@ appeared. Sky's crow, which the desert labyrinth's door brings out as the door a
 while the door stayed, and without its dialogue the door never opened. Objects are now kept as
 far past where they appear as the original keeps them, and a save state taken with the crow
 missing gets it back when loaded with the view on.
+The third labyrinth's eye puzzles (whip a jar, knock the eye that comes out into its statue's
+socket) went wrong three ways. The eye moves for up to seven frames before it has its own
+collision box, with whatever box the last object in its memory slot left; with the view that was
+often a tall enemy's, which reached into the floor and pushed the eye up to 53 pixels sideways,
+into the wall and out of the room, differently on every try. The puzzles also share their lists
+of open sockets and of which eye is out, and the view has several puzzles awake at once, so the
+room's socket never took the eye and one puzzle's eye could be written into another's jar. And
+the eye was let go 160 pixels off the original screen while its broken jar stayed. The eye now
+has its own box from the start, each puzzle reads its own eyes and sockets, and the eye is kept as
+far as the view keeps its jar. A save state taken after an eye was lost that way, with its jar
+left empty, has the jar full again when loaded with the view on.
 Camera/physics reads and the native PPU remain unchanged.
 See [expanded-view implementation and checks](docs/expanded-view.md).
 
