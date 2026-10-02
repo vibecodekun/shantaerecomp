@@ -1,16 +1,18 @@
 /*
  * launcher_options.c -- Shantae's options on the recomp-ui launcher's Mods page.
  *
- * Four built-in features: "GBA Enhanced mode" with a Colors choice,
+ * Five built-in features: "GBA Enhanced mode" with a Colors choice,
  * "Expanded view" with an aspect ratio (or Adaptive, filling the screen), a
  * width and height in pixels and the scale of the original view it falls back
- * to, "Remove slowdown" and "Reduce input lag".
+ * to, "Remove slowdown", "Reduce input lag", and "Smoother movement" with what
+ * a whip does on the move, the air speed and the crawl.
  * Values are stored in shantae.ini through the accessors in extras.c and take
  * effect when the game boots, so there is nothing to stage or commit.
  */
 #include "game_extras.h"
 #include "recomp_launcher.h"
 #include "expanded_view.h"
+#include "moveset.h"
 #include "gb_custom_view.h"
 
 #include <SDL.h>
@@ -44,6 +46,24 @@ static const char *const room_zooms[][2] = {
     {"off", "Off"},
     {"fill", "Fill the screen"},
     {"whole", "Whole room"},
+};
+#define FEATURE_MOVES "smooth_moves"
+#define OPTION_WHIP "whip"
+#define OPTION_AIR "air_speed"
+#define OPTION_CRAWL "crawl"
+/* In the order of SHANTAE_WHIP_*. */
+static const char *const whip_modes[][2] = {
+    {"original", "Original: stop to whip"},
+    {"slide", "Slide: whip and keep moving"},
+    {"cancel", "Cancel: B and a direction runs at once"},
+};
+static const char *const air_speeds[][2] = {
+    {"original", "Original: set when she leaves the ground"},
+    {"b", "Hold B for running speed"},
+};
+static const char *const crawls[][2] = {
+    {"original", "Original"},
+    {"b", "Hold B for walking speed"},
 };
 
 static char s_error[256];
@@ -108,6 +128,10 @@ static int is_input_lag(const char *package_id, const char *feature_id) {
     return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
            strcmp(feature_id, FEATURE_INPUT_LAG) == 0;
 }
+static int is_moves(const char *package_id, const char *feature_id) {
+    return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
+           strcmp(feature_id, FEATURE_MOVES) == 0;
+}
 
 /* ---- package surface: a single built-in package the Features view owns ---- */
 
@@ -134,13 +158,38 @@ static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
 
 static int feature_count(void *ctx) {
     (void)ctx;
-    return 4;
+    return 5;
 }
 
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
     (void)ctx;
-    if (index < 0 || index > 3 || !out) return 0;
+    if (index < 0 || index > 4 || !out) return 0;
     memset(out, 0, sizeof(*out));
+    if (index == 4) {
+        static const char *const whips[] = {"stops to whip", "whip slide", "whip cancel"};
+        snprintf(out->id, sizeof(out->id), "%s", FEATURE_MOVES);
+        snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
+        snprintf(out->package_version, sizeof(out->package_version), "1.0");
+        snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
+        snprintf(out->name, sizeof(out->name), "Smoother movement");
+        snprintf(out->description, sizeof(out->description),
+                 "Shantae keeps her momentum. Holding B runs at once, on the ground and in the "
+                 "air, instead of after a whip and half a second: B with a direction whips while "
+                 "she runs (or just runs, with Cancel), a jump moves at running speed while B is "
+                 "held and at walking speed when it is not, a whip that lands no longer stops "
+                 "her, and she crawls at walking speed with B. Her base form only. Off plays as "
+                 "the original.");
+        snprintf(out->group, sizeof(out->group), "Gameplay");
+        if (shantae_smooth_moves())
+            snprintf(out->status, sizeof(out->status), "On: %s, %s air speed, %s crawl",
+                     whips[shantae_whip_moving()], shantae_air_speed_b() ? "B for" : "original",
+                     shantae_fast_crawl() ? "B for a faster" : "original");
+        else
+            snprintf(out->status, sizeof(out->status), "Off: the original moves");
+        out->enabled = shantae_smooth_moves();
+        out->option_count = 3;
+        return 1;
+    }
     if (index == 3) {
         snprintf(out->id, sizeof(out->id), "%s", FEATURE_INPUT_LAG);
         snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
@@ -457,10 +506,86 @@ static int view_set_option(const char *option_id, const char *value) {
     return 1;
 }
 
+static int moves_option_get(int index, RecompLauncherCModOption *out) {
+    memset(out, 0, sizeof(*out));
+    snprintf(out->group, sizeof(out->group), "Moves");
+    out->type = RECOMP_MOD_OPTION_CHOICE;
+    out->disabled = !shantae_smooth_moves();
+    if (index == 0) {
+        snprintf(out->id, sizeof(out->id), OPTION_WHIP);
+        snprintf(out->label, sizeof(out->label), "Whip on the move");
+        snprintf(out->description, sizeof(out->description),
+                 "What B does while a direction is held, standing or crouched. Slide: the whip "
+                 "comes out and hits as usual while she keeps moving, at running speed with B "
+                 "held, and a whip begun in the air carries on along the ground. Cancel: she "
+                 "runs (or crawls) at once without whipping, and a whip in progress ends when B "
+                 "and a direction are held; stand still to whip. Original: she stops for the "
+                 "whole whip.");
+        snprintf(out->value, sizeof(out->value), "%s", whip_modes[shantae_whip_moving()][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "slide");
+        out->choice_count = 3;
+    } else if (index == 1) {
+        snprintf(out->id, sizeof(out->id), OPTION_AIR);
+        snprintf(out->label, sizeof(out->label), "Air speed");
+        snprintf(out->description, sizeof(out->description),
+                 "In the original a jump keeps the speed she left the ground with: running "
+                 "speed out of a run, walking speed otherwise, whatever is held. With B, she "
+                 "moves at running speed while B is held and at walking speed when it is "
+                 "released, jumping, falling or whipping in the air.");
+        snprintf(out->value, sizeof(out->value), "%s", air_speeds[shantae_air_speed_b()][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "b");
+        out->choice_count = 2;
+    } else if (index == 2) {
+        snprintf(out->id, sizeof(out->id), OPTION_CRAWL);
+        snprintf(out->label, sizeof(out->label), "Crawl");
+        snprintf(out->description, sizeof(out->description),
+                 "The crawl moves half a pixel a frame, and holding B makes her stand up and "
+                 "run. With B, she stays down and crawls at walking speed, twice as fast, for "
+                 "as long as B is held.");
+        snprintf(out->value, sizeof(out->value), "%s", crawls[shantae_fast_crawl()][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "b");
+        out->choice_count = 2;
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
+static int moves_choice_get(const char *option_id, int index, RecompLauncherCModChoice *out) {
+    const char *const (*choices)[2] = !strcmp(option_id, OPTION_WHIP) ? whip_modes
+                                    : !strcmp(option_id, OPTION_AIR) ? air_speeds
+                                    : !strcmp(option_id, OPTION_CRAWL) ? crawls : NULL;
+    if (!choices || index < 0 || index >= (choices == whip_modes ? 3 : 2)) return 0;
+    memset(out, 0, sizeof(*out));
+    snprintf(out->value, sizeof(out->value), "%s", choices[index][0]);
+    snprintf(out->label, sizeof(out->label), "%s", choices[index][1]);
+    return 1;
+}
+
+static int moves_set_option(const char *option_id, const char *value) {
+    if (!strcmp(option_id, OPTION_WHIP)) {
+        for (int i = 0; i < 3; ++i) {
+            if (!strcmp(value, whip_modes[i][0])) {
+                shantae_set_whip_moving(i);
+                return 1;
+            }
+        }
+    } else if (!strcmp(option_id, OPTION_AIR) && (!strcmp(value, "b") || !strcmp(value, "original"))) {
+        shantae_set_air_speed_b(!strcmp(value, "b"));
+        return 1;
+    } else if (!strcmp(option_id, OPTION_CRAWL) && (!strcmp(value, "b") || !strcmp(value, "original"))) {
+        shantae_set_fast_crawl(!strcmp(value, "b"));
+        return 1;
+    }
+    snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
+    return 0;
+}
+
 static int feature_option_get(void *ctx, const char *package_id, const char *feature_id,
                               int index, RecompLauncherCModOption *out) {
     (void)ctx;
     if (is_view(package_id, feature_id) && out) return view_option_get(index, out);
+    if (is_moves(package_id, feature_id) && out) return moves_option_get(index, out);
     if (!is_feature(package_id, feature_id) || index != 0 || !out) return 0;
     memset(out, 0, sizeof(*out));
     snprintf(out->id, sizeof(out->id), OPTION_COLORS);
@@ -480,6 +605,7 @@ static int feature_option_get(void *ctx, const char *package_id, const char *fea
 static int feature_choice_get(void *ctx, const char *package_id, const char *feature_id,
                               const char *option_id, int index, RecompLauncherCModChoice *out) {
     (void)ctx;
+    if (is_moves(package_id, feature_id) && option_id && out) return moves_choice_get(option_id, index, out);
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_ASPECT) == 0 && out)
         return view_choice_get(index, out);
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_NATIVE) == 0 && out)
@@ -523,6 +649,10 @@ static int feature_enable(void *ctx, const char *package_id, const char *feature
         shantae_set_reduce_input_lag(enabled);
         return 1;
     }
+    if (is_moves(package_id, feature_id)) {
+        shantae_set_smooth_moves(enabled);
+        return 1;
+    }
     if (!is_feature(package_id, feature_id)) return 0;
     shantae_set_gba_enhanced(enabled);
     return 1;
@@ -532,6 +662,7 @@ static int feature_set_option(void *ctx, const char *package_id, const char *fea
                               const char *option_id, const char *value) {
     (void)ctx;
     if (is_view(package_id, feature_id) && option_id && value) return view_set_option(option_id, value);
+    if (is_moves(package_id, feature_id) && option_id && value) return moves_set_option(option_id, value);
     if (!is_feature(package_id, feature_id) || !option_id || !value ||
         strcmp(option_id, OPTION_COLORS) != 0) {
         return 0;

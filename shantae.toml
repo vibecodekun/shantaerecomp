@@ -195,6 +195,137 @@ bank = 4
 addr = 0x4D99
 note = "LD A,$00: cartridge RAM off"
 
+# "Smoother movement" (moveset.c): Shantae's own movement routines in bank 6.
+# The whip routines zero her speed at +$41 with three LD A,0; the hooks give
+# the speed she slides at instead.
+[[imm_override]]
+bank = 6
+addr = 0x5E56
+note = "LD A,$00 in the whip routine 06:5E52: her speed, low byte (and the tick's script changes)"
+
+[[imm_override]]
+bank = 6
+addr = 0x5E59
+note = "LD A,$00: the whip's speed, pixels"
+
+[[imm_override]]
+bank = 6
+addr = 0x5E5C
+note = "LD A,$00: the whip's speed, sign"
+
+[[imm_override]]
+bank = 6
+addr = 0x6711
+note = "LD A,$00 in the crouch whip routine 06:670D: her speed, low byte (and the tick's script changes)"
+
+[[imm_override]]
+bank = 6
+addr = 0x6714
+note = "LD A,$00: the crouch whip's speed, pixels"
+
+[[imm_override]]
+bank = 6
+addr = 0x6717
+note = "LD A,$00: the crouch whip's speed, sign"
+
+# The jump (06:5520) and air whip (06:6CCD) routines read +$64 and take run
+# speed when it is set: CP 0, JR NZ. With the hook B held is run speed.
+[[imm_override]]
+bank = 6
+addr = 0x5637
+note = "CP $00 on +$64, jump routine moving left: run speed while B is held"
+
+[[imm_override]]
+bank = 6
+addr = 0x5663
+note = "CP $00 on +$64, jump routine moving right"
+
+[[imm_override]]
+bank = 6
+addr = 0x6D37
+note = "CP $00 on +$64, air whip routine moving left"
+
+[[imm_override]]
+bank = 6
+addr = 0x6D63
+note = "CP $00 on +$64, air whip routine moving right"
+
+# The crawl routine (06:648B) moves half a pixel a tick: $FFFF7F left, $000080
+# right. With B held the hooks give walk speed.
+[[imm_override]]
+bank = 6
+addr = 0x6575
+note = "LD A,$7F: crawl speed left, low byte (and the crawl animation's rate)"
+
+[[imm_override]]
+bank = 6
+addr = 0x6578
+note = "LD A,$FF: crawl speed left, pixels"
+
+[[imm_override]]
+bank = 6
+addr = 0x657B
+note = "LD A,$FF: crawl speed left, sign"
+
+[[imm_override]]
+bank = 6
+addr = 0x6595
+note = "LD A,$80: crawl speed right, low byte (and the crawl animation's rate)"
+
+[[imm_override]]
+bank = 6
+addr = 0x6598
+note = "LD A,$00: crawl speed right, pixels"
+
+[[imm_override]]
+bank = 6
+addr = 0x659B
+note = "LD A,$00: crawl speed right, sign"
+
+# LDH A,($8C) / AND 2 / CP 2 / JP Z: a new B press starts a whip. With "cancel"
+# and a direction held the press is not seen, and she runs or crawls on.
+[[imm_override]]
+bank = 6
+addr = 0x4AD6
+note = "AND $02 on FF8C in the idle routine 06:4AA7: B pressed"
+
+[[imm_override]]
+bank = 6
+addr = 0x509C
+note = "AND $02 on FF8C in the walk routine 06:502A: B pressed"
+
+[[imm_override]]
+bank = 6
+addr = 0x60EF
+note = "AND $02 on FF8C in the crouch routine 06:6094: B pressed"
+
+[[imm_override]]
+bank = 6
+addr = 0x64D3
+note = "AND $02 on FF8C in the crawl routine 06:648B: B pressed"
+
+# An air whip that lands resumes on the ground: script 06:5DCB, or 06:6681
+# with Down held. With "cancel" and a direction held she runs or crawls on.
+[[imm_override]]
+bank = 6
+addr = 0x6DA4
+note = "LD A,$CB: low byte of the script an air whip lands in (06:5DCB)"
+
+[[imm_override]]
+bank = 6
+addr = 0x6DA7
+note = "LD A,$5D: its high byte"
+
+[[imm_override]]
+bank = 6
+addr = 0x6DC3
+note = "LD A,$81: low byte of the script an air whip lands in with Down held (06:6681)"
+
+[[imm_override]]
+bank = 6
+addr = 0x6DC6
+note = "LD A,$66: its high byte"
+
 # Inline-argument routines: CALL routine ; <args> -- they read their arguments
 # through the return address and resume past them. Lengths from
 # tools/inline_args.py (straight-line HL increments before PUSH HL), plus two

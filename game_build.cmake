@@ -3,6 +3,7 @@
 target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/ram_native.c")
 target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/expanded_view.c")
 target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/object_slots.c")
+target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/moveset.c")
 
 # The generated project builds for size (-Os, the ROM code at -O1). The
 # runtime and this game's modules run every frame: the PPU, APU and timers,
@@ -15,6 +16,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT CMAKE_BUILD_TYPE STREQUAL "De
         "${CMAKE_CURRENT_LIST_DIR}/ram_native.c"
         "${CMAKE_CURRENT_LIST_DIR}/expanded_view.c"
         "${CMAKE_CURRENT_LIST_DIR}/object_slots.c"
+        "${CMAKE_CURRENT_LIST_DIR}/moveset.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/../extras.c"
         PROPERTIES COMPILE_OPTIONS -O2)
 endif()
