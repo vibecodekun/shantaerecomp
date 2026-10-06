@@ -13,8 +13,12 @@ Builds for Windows (x64, x86, ARM64) and Linux (x86_64, aarch64; a tarball or an
 the [Releases](https://github.com/vibecodekun/shantaerecomp/releases/latest) page. Extract one
 and run `shantae.exe` / `shantae`; the launcher asks for the ROM on the first start.
 
-**No ROM is included.** You need your own Shantae (USA) Game Boy Color ROM, CRC32 `E994B59B`;
-the launcher verifies it.
+**No ROM is included.** You need your own Shantae (USA) Game Boy Color ROM, the No-Intro dump:
+SHA-256 `1b92e22d5510c51bab97d23074e4aad7464d93eb15f7596ef7da0a5efa27a19d` (CRC32 `E994B59B`).
+The launcher reads "ROM verified" under the box art and enables PLAY only for that file. Any other
+file reads "ROM not recognized" and does not start: bad dumps, other games, and Shantae's other
+releases (World, Switch, Limited Run Games), which are different ROMs and not supported yet. The
+code was recompiled from that exact ROM.
 
 ## Layout
 
@@ -49,6 +53,7 @@ the launcher verifies it.
 | `tools/check_eyes.py` | The third labyrinth's eye puzzle with the expanded view: the eye settles where its jar was, the socket takes it, the statue gives its key, and another puzzle in view is left alone, from a saved state |
 | `tools/check_pictures.py` | The fourth labyrinth's picture puzzles and key doors with the expanded view against the original, pixel for pixel: each picture and door shows its own state, the puzzle is solved and its key taken, from a saved state |
 | `tools/check_moveset.py` | Shantae's moves with "Smoother movement" beside the original, frame for frame: the whip slide and cancel, air speed, a whip that lands or slides off a ledge, the crawl; and the feature off against the previous release, from a saved state |
+| `tools/check_rom_gate.py` | Only the ROM the build was recompiled from starts: the launcher's "ROM verified" line and PLAY, and the runtime's own check, for the ROM, bad dumps made from it, and optionally another game |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/ghidra_listing.py`, `tools/ghidra/Listing.java` | Ghidra's disassembly of ROM ranges (`6:4AA7:4B19`) from the command line: headless, read-only, far-call aware; imports the ROM into `logs/ghidra` on first use |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
@@ -87,6 +92,13 @@ Run it independently with `python tools/check_startup.py`; `--rom`, `--exe`, and
 `--frames` select another ROM path, binary, or duration. It uses temporary settings
 and saves, checks that the frame limit was reached, and fails on native execution
 errors or interpreter fallback. Its log is `logs/startup-smoke.log`.
+
+Only the ROM the build was recompiled from starts. The recompiler embeds its SHA-256, the
+generated `main()` hands it to the launcher before the launcher opens (the line under the box
+art and the PLAY button follow it), and the runtime checks the file again at boot, which is what
+stops a wrong ROM when "Skip launcher on boot" is on (on Windows a "Wrong ROM" box, then the file
+picker). `python tools/check_rom_gate.py` checks both with the ROM, a one-bit bad dump and an
+underdump made from it; `--other` adds another game's ROM.
 
 Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's options:
 

@@ -9,7 +9,9 @@ NVIDIA's; 3.0 for the shader presets) and X11 or Wayland. SDL2 and the C++
 runtime are built in.
 
 You need your own Shantae (USA) ROM (.gbc). The launcher asks for it on the
-first start.
+first start. It must be the No-Intro dump, SHA-256
+1b92e22d5510c51bab97d23074e4aad7464d93eb15f7596ef7da0a5efa27a19d: the
+launcher reads "ROM verified" for it and starts no other file.
 
 
 Running

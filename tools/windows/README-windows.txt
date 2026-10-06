@@ -14,7 +14,9 @@ through ANGLE (OpenGL ES on Direct3D), which comes with it, as do SDL2 and
 librashader for the shader presets; nothing else needs installing.
 
 You need your own Shantae (USA) ROM (.gbc). The launcher asks for it on the
-first start.
+first start. It must be the No-Intro dump, SHA-256
+1b92e22d5510c51bab97d23074e4aad7464d93eb15f7596ef7da0a5efa27a19d: the
+launcher reads "ROM verified" for it and starts no other file.
 
 
 Running
