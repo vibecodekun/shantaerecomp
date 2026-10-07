@@ -78,7 +78,8 @@ void game_draw_overlay(struct GBContext *ctx) {
     int forms = shantae_smooth_forms();
     if (ImGui::Combo("Transformations", &forms, transformations, 2)) shantae_set_smooth_forms(forms);
     ImGui::TextDisabled("Monkey and tinkerbat: claw, sword and jumps as above;");
-    ImGui::TextDisabled("the harpy keeps her speed; the tinkerbat squeezes");
+    ImGui::TextDisabled("the harpy keeps her speed and flaps through her");
+    ImGui::TextDisabled("talons; the tinkerbat squeezes");
     ImGui::TextDisabled("through gaps the monkey fits. Changes apply at once.");
     if (!smooth) ImGui::EndDisabled();
 

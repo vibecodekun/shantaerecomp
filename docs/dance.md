@@ -2,7 +2,8 @@
 
 "Easier dancing" (`dance.c`, on by default; Mods page and Esc → Shantae) changes two things
 about Shantae's dances: the steps are entered like a code, at any speed, and after an animal
-transformation she blinks and cannot be hurt for two seconds, as after a hit. Each has an
+transformation, and after turning back into herself, she blinks and cannot be hurt for two
+seconds, as after a hit. Each has an
 option; with both at *Original*, or the feature off, the dance plays as the original, frame
 for frame.
 
@@ -98,6 +99,26 @@ a jump to 06:7265 and the blinker returns to the VM in its place: the `CP $FF` a
 stops there, and the runtime's step hook (`shantae_dance_step`) does the routine's last
 store (`LD (CB72),A`) and the jump.
 
+### Turning back
+
+Select in a form turns her back into Shantae with the script 0E:4000 (decoded by its
+opcodes): routine 0E:40BD, two calls to 06:72CD (CB56 is 2), an effect object (0E:408D,
+script 0E:4DF1), then routine 0E:40C4 and the change back (frames 0E:403F–0E:4075; CB56 drops
+to 1 about 70 ticks in), a call to 06:72D2 at 0E:407B, and her idle script
+06:49F2 (or the crouch, 06:6044). So she is safe while she turns back, about 120 ticks, and
+the last one comes off on the tick she can move again; from then nothing protects her (the
+user's report on 2026-10-07). A slider in the desert that reaches her while she turns back
+hits her on the next tick.
+
+With the option, that call goes to the blinker spawner 06:7265 instead, which takes over the
+one she still has: she flashes and cannot be hurt for 120 ticks from the tick she can move,
+and the blinker takes it off at the end. If nothing is left by then CB56 is made 1 first, for
+the blinker to take off. Op 32 (00:1A46) reaches the routine with `JP HL` (00:1A66), so the
+generated dispatcher offers 06:72D2 to `game_dispatch_override` (`ram_native.c`), which asks
+`shantae_dance_dispatch`; it tells this call from the routine's other callers by op 32's
+stack: the return to 00:1A5B, the script's DE at 0E:407F (just past this call), her slot in BC
+and the script's bank 0E in the saved A.
+
 ## Hook sites
 
 `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_dance_imm` in `dance.c`,
@@ -109,6 +130,9 @@ called from `extras.c`.
 | 0E:4D48 | `AND $04` on FF8C | this tick's presses as steps, and their pose |
 | 0E:4D54 | `CP $00` on slot+$18 | the window stays shut |
 | 0E:4ECB | `CP $FF` on CB81 | a form is set: stop, then the blinker (step hook) |
+
+And one dispatch hook: 06:72D2 reached from op 32 at 0E:407B (the turn back's last call) goes
+to 06:7265, the blinker (`shantae_dance_dispatch`, from `game_dispatch_override`).
 
 ## Checks
 
@@ -123,5 +147,9 @@ called from `extras.c`.
 - Landed beside a slider with the debug flight and turned into the monkey: the original is
   hit six frames after its protection ends; with the option she blinks and is not hurt for
   the 120 frames from her appearance.
+- The monkey flown beside the slider, then Select: she is safe while she turns back in both;
+  the original is hit a frame after she can move, with the option she blinks from that frame
+  and is not hurt for 120 frames. v0.1.11 fails this (its protection ends a frame after she
+  can move, and the slider hits her).
 - `--original <exe>` (the previous release's): with the feature off, and with both options
   at *Original*, 298 frames of dances in and out of rhythm give the same object and dance RAM.

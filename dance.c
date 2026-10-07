@@ -47,6 +47,15 @@
  * 0E:4EC8 returns to the script VM's native call (00:1A5B), which restores the
  * ROM bank, so its RET becomes a jump to 06:7265: the CP $FF at 0E:4ECB stops
  * there, and shantae_dance_step does the routine's last store and the jump.
+ *
+ * Turning back into Shantae (Select in a form) runs the script 0E:4000: two
+ * added at its start (06:72CD twice), one taken off by its effect, and the last
+ * taken off by the call to 06:72D2 at 0E:407B, on the tick she can move again
+ * (her idle script 06:49F2 follows), so nothing protects her from then on.
+ * With the option that call goes to 06:7265 instead: the blinker takes over the
+ * one she still has, flashes her and takes it off 120 ticks later. Op 32
+ * (00:1A46) reaches it with JP HL, so the dispatcher offers 06:72D2 to
+ * shantae_dance_dispatch, which tells this call by op 32's stack.
  */
 #include "dance.h"
 #include "gbrt.h"
@@ -64,6 +73,9 @@
 
 #define SET_FORM_TEST 0x4ECD   /* 0E: after the CP $FF in 0E:4EC8 */
 #define BLINKER 0x7265         /* 06: spawns the blinker */
+#define TAKE_ONE_OFF 0x72D2    /* 06: CB56 less one, if set */
+#define NATIVE_RETURN 0x1A5B   /* 00: after op 32's CALL 00:1A66 */
+#define TURN_BACK_LAST 0x407F  /* 0E: after the turn back's call to 06:72D2 (op 32 at 0E:407B) */
 
 #define DANCE_BANK 0x0E
 #define DANCES 0x4342       /* 0E: the table 0E:42D2 matches with */
@@ -195,6 +207,22 @@ static int quick_steps(GBContext *ctx) {
 /* A form, not the heal dance's $FF, is being set by 0E:4EC8 (A is CB81). */
 static int blink_on_appearing(GBContext *ctx) {
     return shantae_easy_dance() && shantae_transform_invincible() && ctx->wram && ctx->a != 0xFF;
+}
+
+int shantae_dance_dispatch(GBContext *ctx, uint16_t addr) {
+    if (addr != TAKE_ONE_OFF || ctx->rom_bank != 0x06 || !ctx->wram || !shantae_easy_dance() ||
+        !shantae_transform_invincible())
+        return 0;
+    /* Op 32's stack: its return, DE (the script after the call), BC (the
+     * object) and AF with the script's bank in A (00:1A48). */
+    const uint16_t sp = ctx->sp;
+    const unsigned p = *global(ctx, PLAYER_POINTER) | *global(ctx, PLAYER_POINTER + 1) << 8;
+    if (gb_read16(ctx, sp) != NATIVE_RETURN || gb_read16(ctx, (uint16_t)(sp + 2)) != TURN_BACK_LAST ||
+        gb_read16(ctx, (uint16_t)(sp + 4)) != p || gb_read16(ctx, (uint16_t)(sp + 6)) >> 8 != DANCE_BANK)
+        return 0;
+    if (!*global(ctx, INVINCIBLE)) *global(ctx, INVINCIBLE) = 1;   /* one for the blinker to take off */
+    ctx->pc = BLINKER;
+    return 1;
 }
 
 void shantae_dance_step(GBContext *ctx) {

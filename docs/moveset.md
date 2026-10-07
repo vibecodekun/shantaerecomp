@@ -148,7 +148,16 @@ monkey's jump; 1C:5518, 1C:5544 in the tinkerbat's fall and jump; 1C:5724, 1C:57
 sword), and the run flag `CB3C` waits for 15 ticks of B as it does for Shantae. With the
 option:
 
-- The run flag follows B (with Shantae's, before each tick's routines, scripts and early move).
+- The run flag follows B (with Shantae's, before each tick's routines, scripts and early move),
+  except on the tick of a new B. Their walk routines test the run flag *before* the new B
+  (0D:4877 before 0D:4894; 1C:4E46 before 1C:4E63), where Shantae's tests the B first
+  (06:509A before 06:50AC). v0.1.11 set the flag on the press itself, so B pressed while
+  walking always ran and never attacked; the slide worked only from standing, after a
+  landing, or when a press happened to fall on a tick in the idle routine (the user's
+  report on 2026-10-07: "only through rapid b presses"). The original's flag waits 15 ticks
+  of B, so it is never set on a new press either. With *Cancel* and a direction held the
+  flag follows B on that tick too, since there the press is meant to run. An early move
+  sees no new presses (`run_player_move` clears `FF8C`), so it has the flag as B is held.
 - *Slide*: with a direction held the attack's speed is run speed with B held, walk speed
   without, and turns her; once the hit is out, with "Reduce input lag", the step is left to
   the routine "start moving" hands on to in the same tick. *Cancel*: a new B with a direction
@@ -162,6 +171,22 @@ in her idle routine (0D:6D3A), whose three `LD A,0` to +$41 (0D:6D86) stop her f
 before the run starts again from nothing. With the option the idle keeps her speed when a
 direction is held the way she is moving, so the run goes on from it. That also keeps her
 speed when she lands from flight with the direction held.
+
+She flies by flapping. A in her flight routine (0D:72A6, the test at 0D:72F4) calls 0D:7355,
+which starts the flap script 0D:7210. Decoded by its opcodes, that script sets the flight
+routine (op 2E), calls 0D:7256 (op 32), which takes $18 from her vertical speed at +$44 and
+makes it at least $FFFD7F upward (about 2.5 pixels a tick; gravity adds $28 a tick), sets the
+stance `CB54` to 1 (op 94), and queues sound $19 (op BC `19 40 1E 00`). The talon routine
+(0D:751F) is only the mover 0D:680B and the landing test 0D:694C and reads no buttons, so
+during the talon's 20 ticks every A was lost and she sank (the user's report on 2026-10-07).
+With the option, at the start of each tick's script pass (00:130B, where the flap script's own
+lift would come), a new A while her routine is the talon and her script still the talon's
+(0D:74E5–0D:751E; a landing this tick has set 0D:6A54) does what the flap script does for
+it: the lift of 0D:7256, `CB54` = 1, and the sound, queued as op BC queues it (00:13D7: `C203`
+moves on 8 and `01 19 40 1E 00` goes to `C204` + `C203`). The talon's script, animation and
+hit (04:5641) go on untouched, and the talon ends as it does in the air (its script tests
+`CB54` at 0D:7515). From her run on the ground an A lifts her off the same way; the original
+lands her from flight in the run with `CB54` still 1, as here.
 
 **The tinkerbat squeezes.** Her box (00:2975 loads it with each frame of animation, at
 +$47–+$4E) is 10 by 20 pixels; the monkey's is 7 by 14, with the same feet. The wall and floor
@@ -199,8 +224,9 @@ All are `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_moves_i
 | 06:6DA4, 6DA7 | `LD A,$CB/$5D` | cancel: the script an air whip lands in |
 | 06:6DC3, 6DC6 | `LD A,$81/$66` | cancel: the same with Down held |
 
-The transformations' sites; the hook is `shantae_forms_imm` in `forms.c`, and the run flag
-and the squeeze are `shantae_forms_tick`, called with Shantae's.
+The transformations' sites; the hook is `shantae_forms_imm` in `forms.c`, the run flag
+and the squeeze are `shantae_forms_tick`, called with Shantae's, and the harpy's flap during
+her talon is `shantae_forms_script_pass`, called at the existing 00:130B site.
 
 | Site | Instruction | Hook |
 |------|-------------|------|
@@ -237,12 +263,21 @@ state2 on 2026-10-06: the tinkerbat on the ice tower's ledge), with Transformati
 - The monkey and the tinkerbat, B and a direction from standing: the original attacks on the spot
   for 16 and 13 frames, then runs; the slide moves 2 pixels on every frame from the press
   into the run; cancel runs at once with no attack.
+- The same with B pressed while walking: the original attacks on the spot; the slide attacks,
+  moving 2 pixels a frame after the walk's own step on the press tick and on into the run, or 1
+  with B tapped and back to the walk; cancel runs at once. v0.1.11 fails this (the run, no
+  attack).
 - A standing jump with B held: 2 pixels a frame, 1 when B is released (the original 1).
 - The harpy's talons in her run: she goes on at her speed; the original starts again.
+- The harpy flapping (A every six frames), then a talon with A every four frames: she rises
+  more than 20 pixels through it and six sounds are queued (the talon's and five flaps'); the
+  talon lasts its 20 frames and its hit comes out. The original sinks, with the talon's sound
+  only; so does v0.1.11.
 - The tinkerbat's squeeze: down the wall into the hidden passage and through it, then up the
   shaft's far wall into the alcove; the original climbs past.
-- `--original <exe>`: with Transformations off, the tinkerbat's and the monkey's routes give
-  the same object as the previous release, byte for byte.
+- `--original <exe>`: with Transformations off, the tinkerbat's, the monkey's (now with B
+  pressed while walking) and the harpy's (flaps, a talon with A during it, a talon in her run)
+  routes give the same object as the previous release, byte for byte.
 - `--original <exe>` (the previous release's): with the feature off, 324 frames of whips,
   runs, jumps and crawls give the same object, byte for byte.
 
