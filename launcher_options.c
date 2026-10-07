@@ -1,11 +1,13 @@
 /*
  * launcher_options.c -- Shantae's options on the recomp-ui launcher's Mods page.
  *
- * Five built-in features: "GBA Enhanced mode" with a Colors choice,
+ * Six built-in features: "GBA Enhanced mode" with a Colors choice,
  * "Expanded view" with an aspect ratio (or Adaptive, filling the screen), a
  * width and height in pixels and the scale of the original view it falls back
- * to, "Remove slowdown", "Reduce input lag", and "Smoother movement" with what
- * a whip does on the move, the air speed and the crawl.
+ * to, "Remove slowdown", "Reduce input lag", "Smoother movement" with what
+ * a whip does on the move, the air speed, the crawl and the transformations,
+ * and "Easier dancing" with the dance steps and invincibility after
+ * transforming.
  * Values are stored in shantae.ini through the accessors in extras.c and take
  * effect when the game boots, so there is nothing to stage or commit.
  */
@@ -13,6 +15,8 @@
 #include "recomp_launcher.h"
 #include "expanded_view.h"
 #include "moveset.h"
+#include "forms.h"
+#include "dance.h"
 #include "gb_custom_view.h"
 
 #include <SDL.h>
@@ -51,6 +55,10 @@ static const char *const room_zooms[][2] = {
 #define OPTION_WHIP "whip"
 #define OPTION_AIR "air_speed"
 #define OPTION_CRAWL "crawl"
+#define OPTION_FORMS "transformations"
+#define FEATURE_DANCE "easy_dance"
+#define OPTION_STEPS "steps"
+#define OPTION_INVINCIBLE "invincible"
 /* In the order of SHANTAE_WHIP_*. */
 static const char *const whip_modes[][2] = {
     {"original", "Original: stop to whip"},
@@ -64,6 +72,18 @@ static const char *const air_speeds[][2] = {
 static const char *const crawls[][2] = {
     {"original", "Original"},
     {"b", "Hold B for walking speed"},
+};
+static const char *const forms[][2] = {
+    {"original", "Original"},
+    {"smoother", "Like Shantae"},
+};
+static const char *const dance_steps[][2] = {
+    {"rhythm", "Original: one step a beat, in rhythm"},
+    {"quick", "Quick: press the steps at any speed"},
+};
+static const char *const invincibles[][2] = {
+    {"original", "Original"},
+    {"blink", "Blink and stay safe for two seconds"},
 };
 
 static char s_error[256];
@@ -132,6 +152,10 @@ static int is_moves(const char *package_id, const char *feature_id) {
     return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
            strcmp(feature_id, FEATURE_MOVES) == 0;
 }
+static int is_dance(const char *package_id, const char *feature_id) {
+    return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
+           strcmp(feature_id, FEATURE_DANCE) == 0;
+}
 
 /* ---- package surface: a single built-in package the Features view owns ---- */
 
@@ -158,13 +182,36 @@ static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
 
 static int feature_count(void *ctx) {
     (void)ctx;
-    return 5;
+    return 6;
 }
 
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
     (void)ctx;
-    if (index < 0 || index > 4 || !out) return 0;
+    if (index < 0 || index > 5 || !out) return 0;
     memset(out, 0, sizeof(*out));
+    if (index == 5) {
+        snprintf(out->id, sizeof(out->id), "%s", FEATURE_DANCE);
+        snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
+        snprintf(out->package_version, sizeof(out->package_version), "1.0");
+        snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
+        snprintf(out->name, sizeof(out->name), "Easier dancing");
+        snprintf(out->description, sizeof(out->description),
+                 "Dance like entering a code. After Select, each press is a step: press them as fast "
+                 "as you like, a wrong button is skipped and the next right one carries on, and Down "
+                 "starts over. The transformation, healing or warp begins on the last step. After an "
+                 "animal transformation she blinks and cannot be hurt for two seconds, as after a "
+                 "hit. Off plays as the original.");
+        snprintf(out->group, sizeof(out->group), "Gameplay");
+        if (shantae_easy_dance())
+            snprintf(out->status, sizeof(out->status), "On: %s steps, %s after transforming",
+                     shantae_quick_steps() ? "quick" : "rhythm",
+                     shantae_transform_invincible() ? "invincible" : "the original");
+        else
+            snprintf(out->status, sizeof(out->status), "Off: the original dance");
+        out->enabled = shantae_easy_dance();
+        out->option_count = 2;
+        return 1;
+    }
     if (index == 4) {
         static const char *const whips[] = {"stops to whip", "whip slide", "whip cancel"};
         snprintf(out->id, sizeof(out->id), "%s", FEATURE_MOVES);
@@ -174,20 +221,22 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
         snprintf(out->name, sizeof(out->name), "Smoother movement");
         snprintf(out->description, sizeof(out->description),
                  "Shantae keeps her momentum. Holding B runs at once, on the ground and in the "
-                 "air, instead of after a whip and half a second: B with a direction whips while "
-                 "she runs (or just runs, with Cancel), a jump moves at running speed while B is "
-                 "held and at walking speed when it is not, a whip that lands no longer stops "
-                 "her, and she crawls at walking speed with B. Her base form only. Off plays as "
-                 "the original.");
+                 "air: B with a direction whips while she runs (or just runs, with Cancel), a "
+                 "jump moves at running speed while B is held and walking speed when not, a "
+                 "landing whip no longer stops her, and B crawls at walking speed. With "
+                 "Transformations the monkey and tinkerbat move the same way, the harpy keeps "
+                 "her speed through her talons, and the tinkerbat squeezes through gaps the "
+                 "monkey fits. Off plays as the original.");
         snprintf(out->group, sizeof(out->group), "Gameplay");
         if (shantae_smooth_moves())
-            snprintf(out->status, sizeof(out->status), "On: %s, %s air speed, %s crawl",
+            snprintf(out->status, sizeof(out->status), "On: %s, %s air speed, %s crawl, %s",
                      whips[shantae_whip_moving()], shantae_air_speed_b() ? "B for" : "original",
-                     shantae_fast_crawl() ? "B for a faster" : "original");
+                     shantae_fast_crawl() ? "B for a faster" : "original",
+                     shantae_smooth_forms() ? "transformations too" : "Shantae only");
         else
             snprintf(out->status, sizeof(out->status), "Off: the original moves");
         out->enabled = shantae_smooth_moves();
-        out->option_count = 3;
+        out->option_count = 4;
         return 1;
     }
     if (index == 3) {
@@ -545,6 +594,18 @@ static int moves_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->value, sizeof(out->value), "%s", crawls[shantae_fast_crawl()][0]);
         snprintf(out->default_value, sizeof(out->default_value), "b");
         out->choice_count = 2;
+    } else if (index == 3) {
+        snprintf(out->id, sizeof(out->id), OPTION_FORMS);
+        snprintf(out->label, sizeof(out->label), "Transformations");
+        snprintf(out->description, sizeof(out->description),
+                 "Like Shantae: the monkey's claw and the tinkerbat's sword follow Whip on the "
+                 "move, their jumps follow Air speed, and B runs at once. The harpy keeps her "
+                 "speed when her talons end instead of starting her run again. The tinkerbat "
+                 "squeezes to the monkey's height where only that fits, so she can climb or walk "
+                 "into a gap the monkey can. Original: they move as in the game.");
+        snprintf(out->value, sizeof(out->value), "%s", forms[shantae_smooth_forms()][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "smoother");
+        out->choice_count = 2;
     } else {
         return 0;
     }
@@ -554,7 +615,8 @@ static int moves_option_get(int index, RecompLauncherCModOption *out) {
 static int moves_choice_get(const char *option_id, int index, RecompLauncherCModChoice *out) {
     const char *const (*choices)[2] = !strcmp(option_id, OPTION_WHIP) ? whip_modes
                                     : !strcmp(option_id, OPTION_AIR) ? air_speeds
-                                    : !strcmp(option_id, OPTION_CRAWL) ? crawls : NULL;
+                                    : !strcmp(option_id, OPTION_CRAWL) ? crawls
+                                    : !strcmp(option_id, OPTION_FORMS) ? forms : NULL;
     if (!choices || index < 0 || index >= (choices == whip_modes ? 3 : 2)) return 0;
     memset(out, 0, sizeof(*out));
     snprintf(out->value, sizeof(out->value), "%s", choices[index][0]);
@@ -576,6 +638,64 @@ static int moves_set_option(const char *option_id, const char *value) {
     } else if (!strcmp(option_id, OPTION_CRAWL) && (!strcmp(value, "b") || !strcmp(value, "original"))) {
         shantae_set_fast_crawl(!strcmp(value, "b"));
         return 1;
+    } else if (!strcmp(option_id, OPTION_FORMS) && (!strcmp(value, "smoother") || !strcmp(value, "original"))) {
+        shantae_set_smooth_forms(!strcmp(value, "smoother"));
+        return 1;
+    }
+    snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
+    return 0;
+}
+
+static int dance_option_get(int index, RecompLauncherCModOption *out) {
+    memset(out, 0, sizeof(*out));
+    snprintf(out->group, sizeof(out->group), "Dancing");
+    out->type = RECOMP_MOD_OPTION_CHOICE;
+    out->disabled = !shantae_easy_dance();
+    out->choice_count = 2;
+    if (index == 0) {
+        snprintf(out->id, sizeof(out->id), OPTION_STEPS);
+        snprintf(out->label, sizeof(out->label), "Dance steps");
+        snprintf(out->description, sizeof(out->description),
+                 "The original takes one step every eight beats, in rhythm: a beat with no press or "
+                 "two presses breaks the dance, and it begins a beat after the last step. Quick: "
+                 "after Select every press is a step at once. A press that goes on to no dance you "
+                 "know is skipped, and Down starts over (every dance begins with it).");
+        snprintf(out->value, sizeof(out->value), "%s", dance_steps[shantae_quick_steps()][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "quick");
+    } else if (index == 1) {
+        snprintf(out->id, sizeof(out->id), OPTION_INVINCIBLE);
+        snprintf(out->label, sizeof(out->label), "After transforming");
+        snprintf(out->description, sizeof(out->description),
+                 "In the original she is safe only until the new form's entrance ends, with nothing "
+                 "to show it, and an enemy nearby can hit her at once. With Blink she flashes and "
+                 "cannot be hurt for two seconds from the moment she appears, the same as after a "
+                 "hit. Healing and warps are unchanged.");
+        snprintf(out->value, sizeof(out->value), "%s", invincibles[shantae_transform_invincible()][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "blink");
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
+static int dance_choice_get(const char *option_id, int index, RecompLauncherCModChoice *out) {
+    const char *const (*choices)[2] = !strcmp(option_id, OPTION_STEPS) ? dance_steps
+                                    : !strcmp(option_id, OPTION_INVINCIBLE) ? invincibles : NULL;
+    if (!choices || index < 0 || index >= 2) return 0;
+    memset(out, 0, sizeof(*out));
+    snprintf(out->value, sizeof(out->value), "%s", choices[index][0]);
+    snprintf(out->label, sizeof(out->label), "%s", choices[index][1]);
+    return 1;
+}
+
+static int dance_set_option(const char *option_id, const char *value) {
+    if (!strcmp(option_id, OPTION_STEPS) && (!strcmp(value, "quick") || !strcmp(value, "rhythm"))) {
+        shantae_set_quick_steps(!strcmp(value, "quick"));
+        return 1;
+    }
+    if (!strcmp(option_id, OPTION_INVINCIBLE) && (!strcmp(value, "blink") || !strcmp(value, "original"))) {
+        shantae_set_transform_invincible(!strcmp(value, "blink"));
+        return 1;
     }
     snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
     return 0;
@@ -586,6 +706,7 @@ static int feature_option_get(void *ctx, const char *package_id, const char *fea
     (void)ctx;
     if (is_view(package_id, feature_id) && out) return view_option_get(index, out);
     if (is_moves(package_id, feature_id) && out) return moves_option_get(index, out);
+    if (is_dance(package_id, feature_id) && out) return dance_option_get(index, out);
     if (!is_feature(package_id, feature_id) || index != 0 || !out) return 0;
     memset(out, 0, sizeof(*out));
     snprintf(out->id, sizeof(out->id), OPTION_COLORS);
@@ -606,6 +727,7 @@ static int feature_choice_get(void *ctx, const char *package_id, const char *fea
                               const char *option_id, int index, RecompLauncherCModChoice *out) {
     (void)ctx;
     if (is_moves(package_id, feature_id) && option_id && out) return moves_choice_get(option_id, index, out);
+    if (is_dance(package_id, feature_id) && option_id && out) return dance_choice_get(option_id, index, out);
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_ASPECT) == 0 && out)
         return view_choice_get(index, out);
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_NATIVE) == 0 && out)
@@ -653,6 +775,10 @@ static int feature_enable(void *ctx, const char *package_id, const char *feature
         shantae_set_smooth_moves(enabled);
         return 1;
     }
+    if (is_dance(package_id, feature_id)) {
+        shantae_set_easy_dance(enabled);
+        return 1;
+    }
     if (!is_feature(package_id, feature_id)) return 0;
     shantae_set_gba_enhanced(enabled);
     return 1;
@@ -663,6 +789,7 @@ static int feature_set_option(void *ctx, const char *package_id, const char *fea
     (void)ctx;
     if (is_view(package_id, feature_id) && option_id && value) return view_set_option(option_id, value);
     if (is_moves(package_id, feature_id) && option_id && value) return moves_set_option(option_id, value);
+    if (is_dance(package_id, feature_id) && option_id && value) return dance_set_option(option_id, value);
     if (!is_feature(package_id, feature_id) || !option_id || !value ||
         strcmp(option_id, OPTION_COLORS) != 0) {
         return 0;

@@ -3,8 +3,10 @@
 "Smoother movement" (`moveset.c`, on by default; Mods page and Esc → Shantae) changes how
 Shantae's base form handles: holding B runs at once, a whip no longer stops her, her air
 speed follows B, and she can crawl at walking speed. It is a set of hooks in her own
-movement routines in bank 6. Off, none of them does anything and the game plays as the
-original, frame for frame.
+movement routines in bank 6. Its *Transformations* option (`forms.c`, below) does the same
+for the monkey and the tinkerbat, keeps the harpy's speed through her talons, and lets the
+tinkerbat squeeze through gaps the monkey fits. Off, none of them does anything and the game
+plays as the original, frame for frame.
 
 Addresses are `bank:address` in the USA ROM (CRC32 `E994B59B`). The routines were read in
 Ghidra 12 with GhidraBoy (`tools/build_ghidraboy.py`) and confirmed by tracing the game
@@ -59,8 +61,8 @@ routine, which starts the crawl again a tick later.
 
 ## What the feature does
 
-All of it applies to her base form only (`CB72` = 0). Two other forms have a run of their
-own that reads the same run flag (0D:47ED, 1C:4DC8); they are left as they are.
+All of this applies to her base form (`CB72` = 0). Two other forms have a run of their
+own that reads the same run flag (0D:47ED, 1C:4DC8); they are in the next section.
 
 **The run flag follows B.** Before each tick's movement routines (00:0C4B), before its
 scripts (00:130B), and before a move that "Reduce input lag" runs early, `CB3C` is set to
@@ -117,6 +119,69 @@ move does.
 Nothing is kept between ticks: every decision is made from the joypad and her object, so
 save states, rewind and Preemptive Frames need nothing extra.
 
+## Transformations
+
+`smooth_forms` in `shantae.ini` (1, default; 0 leaves the forms as the original). It follows
+the feature's other options: *Whip on the move* for the monkey's claw and the tinkerbat's
+sword, *Air speed* for their jumps. `CB72` is the form: 1 monkey, 2 elephant, 3 harpy, 4
+spider, 5 tinkerbat; the elephant and the spider are left as they are.
+
+**The monkey (bank 0D) and the tinkerbat (bank 1C)** are built like Shantae:
+
+| Move | Monkey | Tinkerbat |
+|------|--------|-----------|
+| Idle | 0D:4510 | 1C:4BDB |
+| Walk | 0D:4840 | 1C:4E0F |
+| Run | 0D:53FC | 1C:5C00 |
+| Start moving (script; walk, or run with `CB3C`) | 0D:47ED | 1C:4DC8 |
+| Jump, fall | 0D:4CE2 | 1C:5375 |
+| Attack (script) | claw 0D:4FC8 (0D:4F95) | sword 1C:57AC (1C:5770) |
+| Air attack | | 1C:56A5 (1C:5659) |
+| Climb | 0D:4ABE | 1C:5080 |
+
+A new B on the ground attacks (the `AND 2` at 0D:4578, 0D:4894, 1C:4C43, 1C:4E63), and the
+attack zeroes her speed on every tick with three `LD A,0` to +$41 (0D:4FCC, 1C:57B0): 16
+ticks on the spot for the claw, 13 for the sword. Unlike the whip, the attack routine checks
+for falling, and once its hit is out (its script sets slot+$18) a direction hands on to "start
+moving". Their jumps take run speed when +$64 is set (`CP 0` at 0D:4E48, 0D:4E74 in the
+monkey's jump; 1C:5518, 1C:5544 in the tinkerbat's fall and jump; 1C:5724, 1C:5750 in her air
+sword), and the run flag `CB3C` waits for 15 ticks of B as it does for Shantae. With the
+option:
+
+- The run flag follows B (with Shantae's, before each tick's routines, scripts and early move).
+- *Slide*: with a direction held the attack's speed is run speed with B held, walk speed
+  without, and turns her; once the hit is out, with "Reduce input lag", the step is left to
+  the routine "start moving" hands on to in the same tick. *Cancel*: a new B with a direction
+  held is not seen, so she runs at once, and an attack in progress goes on to "start moving"
+  when B and a direction are held.
+- *Air speed*: the `CP 0` compares with a value that is "not zero" while B is held.
+
+**The harpy (bank 0D)** has no run flag. Her run (0D:6F38) adds $10 a tick against $08 of
+drag, up to two pixels a tick; her talons (0D:751F, script 0D:74E5) keep her speed, but end
+in her idle routine (0D:6D3A), whose three `LD A,0` to +$41 (0D:6D86) stop her for a tick
+before the run starts again from nothing. With the option the idle keeps her speed when a
+direction is held the way she is moving, so the run goes on from it. That also keeps her
+speed when she lands from flight with the direction held.
+
+**The tinkerbat squeezes.** Her box (00:2975 loads it with each frame of animation, at
++$47–+$4E) is 10 by 20 pixels; the monkey's is 7 by 14, with the same feet. The wall and floor
+tests (00:29F6, the climb's wall test 1C:4F51) take the box's whole height, so a passage the
+monkey climbs or walks into is a wall to her: 16 pixels tall, as in the ice tower behind the
+ledge of the user's state2, where a hidden passage runs from the wall at x 5288 through to a
+warp squid's alcove, crossed by a shaft 16 pixels wide. With the option, before each tick's
+movement her box is the monkey's height, feet kept, when that box is clear of solid tiles and
+either her frame's own box is not (she is inside such a gap) or she is pressing into a wall
+that is solid for her own box and open for the smaller one. The tiles are read as 00:2CCF and
+00:3297 read them: a row of the table at 00:0300, the block from the directory at C9F9 (bank
+C9FA), its metatile, and the quarter's byte at +8–+B of the metatile's record in bank FFDF
+plus its low nibble; 02 and 62 are solid. The box is rewritten only when it is her frame's or
+the squeezed one, and the next frame's load restores it.
+
+So climbing down that wall with B, Down and Left she lets go where the passage opens and runs
+through it; in the shaft, climbing its far wall with Up (or with A presses) and Left, she steps
+into the passage's far side and reaches the alcove. With the monkey's box she fits only where
+the monkey fits, and her object's other box (+$4F–+$56) is unchanged.
+
 ## Hook sites
 
 All are `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_moves_imm` in
@@ -133,6 +198,17 @@ All are `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_moves_i
 | 06:4AD6, 509C, 60EF, 64D3 | `AND $02` | cancel: no whip with a direction held |
 | 06:6DA4, 6DA7 | `LD A,$CB/$5D` | cancel: the script an air whip lands in |
 | 06:6DC3, 6DC6 | `LD A,$81/$66` | cancel: the same with Down held |
+
+The transformations' sites; the hook is `shantae_forms_imm` in `forms.c`, and the run flag
+and the squeeze are `shantae_forms_tick`, called with Shantae's.
+
+| Site | Instruction | Hook |
+|------|-------------|------|
+| 0D:4FCC, 4FCF, 4FD2 | `LD A,$00` | the claw's speed |
+| 1C:57B0, 57B3, 57B6 | `LD A,$00` | the sword's speed |
+| 0D:4E48, 4E74; 1C:5518, 5544, 5724, 5750 | `CP $00` | air speed from B |
+| 0D:4578, 4894; 1C:4C43, 4E63 | `AND $02` | cancel: no attack with a direction held |
+| 0D:6D86, 6D89, 6D8C | `LD A,$00` | the harpy keeps her speed |
 
 ## Checks
 
@@ -151,8 +227,22 @@ and on, a frame at a time, and reads her object:
 - A slide off the platform's edge: whip, air whip (the hit lands in the air), whip, run.
 - The crawl: half a pixel; with B one pixel, crouched throughout; the original stands
   and runs; the crawl option off.
-- Another form (`--form-state`, the tinkerbat of `flip-puzzle.state`): 324 frames the
-  same with the feature on and off.
+- Another form (`--form-state`, the tinkerbat of `flip-puzzle.state`): with Transformations
+  off, 324 frames the same with the feature on and off.
+
+`python tools/check_forms.py` plays the transformations, from `logs/states/dance.state`
+(turned into the monkey and the harpy) and `logs/states/tinkerbat-gap.state` (the user's
+state2 on 2026-10-06: the tinkerbat on the ice tower's ledge), with Transformations off and on:
+
+- The monkey and the tinkerbat, B and a direction from standing: the original attacks on the spot
+  for 16 and 13 frames, then runs; the slide moves 2 pixels on every frame from the press
+  into the run; cancel runs at once with no attack.
+- A standing jump with B held: 2 pixels a frame, 1 when B is released (the original 1).
+- The harpy's talons in her run: she goes on at her speed; the original starts again.
+- The tinkerbat's squeeze: down the wall into the hidden passage and through it, then up the
+  shaft's far wall into the alcove; the original climbs past.
+- `--original <exe>`: with Transformations off, the tinkerbat's and the monkey's routes give
+  the same object as the previous release, byte for byte.
 - `--original <exe>` (the previous release's): with the feature off, 324 frames of whips,
   runs, jumps and crawls give the same object, byte for byte.
 

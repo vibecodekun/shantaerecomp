@@ -26,7 +26,9 @@ whip's hit (CBA2 set for the tick it lands, CBA5 its kind: 0 standing,
 - Crawl: half a pixel a frame; with B one pixel, crouched throughout, through
   the crouch whip and after it. With the crawl option off, the original's.
 - Another form (--form-state, by default the tinkerbat of flip-puzzle.state,
-  whose own run reads the same run flag): the feature on is the feature off.
+  whose own run reads the same run flag): with Transformations off
+  (smooth_forms=0; check_forms.py has them on), the feature on is the feature
+  off.
 
 Requires the local saved state; never writes user saves or settings.
 """
@@ -349,11 +351,13 @@ def main():
             check_ledge(slide, args.state)
             check_crawl(off, slide, cancel, plain, args.state)
             if args.form_state.exists():
-                check_form(off, slide, args.form_state)
+                check_form(off, game("slide, transformations off", whip_moving=SLIDE, smooth_forms=0), args.form_state)
             else:
                 print(f"SKIP: another form (no {args.form_state.name})")
             if args.original:
-                check_original(off, game("previous release", exe=args.original.resolve()), args.state)
+                # Off there too: releases from v0.1.8 have the feature on by
+                # default, and older ones ignore the setting.
+                check_original(off, game("previous release", exe=args.original.resolve(), smooth_moves=0), args.state)
             else:
                 print("SKIP: the feature off against the previous release (no --original exe given)")
         finally:

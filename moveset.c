@@ -46,6 +46,7 @@
  * and the object, so save states and rollback need nothing from this file.
  */
 #include "moveset.h"
+#include "forms.h"
 #include "gbrt.h"
 #include "object_slots.h"
 
@@ -100,6 +101,7 @@ static int base_form(GBContext *ctx) {
 /* The run flag follows B. Not crouched under a low ceiling, where she cannot
  * stand, and not with Down held when B is the faster crawl. */
 void shantae_moves_tick(GBContext *ctx) {
+    shantae_forms_tick(ctx);   /* in a transformation */
     if (!base_form(ctx)) return;
     const uint8_t held = ctx->hram[0x0B];
     const int under = *global(ctx, STANCE) == 2 && *global(ctx, LOW_CEILING) != 0;
