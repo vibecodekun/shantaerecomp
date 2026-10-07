@@ -54,6 +54,7 @@ code was recompiled from that exact ROM.
 | `tools/check_pictures.py` | The fourth labyrinth's picture puzzles and key doors with the expanded view against the original, pixel for pixel: each picture and door shows its own state, the puzzle is solved and its key taken, from a saved state |
 | `tools/check_moveset.py` | Shantae's moves with "Smoother movement" beside the original, frame for frame: the whip slide and cancel, air speed, a whip that lands or slides off a ledge, the crawl; and the feature off against the previous release, from a saved state |
 | `tools/check_rom_gate.py` | Only the ROM the build was recompiled from starts: the launcher's "ROM verified" line and PLAY, and the runtime's own check, for the ROM, bad dumps made from it, and optionally another game |
+| `tools/check_leave.py` | Leaving from the in-game menus: the first confirmed Return to Launcher ends the game and opens the launcher, Quit ends it and opens nothing, from the Escape menu, the settings window and the debug server |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
 | `tools/ghidra_listing.py`, `tools/ghidra/Listing.java` | Ghidra's disassembly of ROM ranges (`6:4AA7:4B19`) from the command line: headless, read-only, far-call aware; imports the ROM into `logs/ghidra` on first use |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
@@ -99,6 +100,15 @@ art and the PLAY button follow it), and the runtime checks the file again at boo
 stops a wrong ROM when "Skip launcher on boot" is on (on Windows a "Wrong ROM" box, then the file
 picker). `python tools/check_rom_gate.py` checks both with the ROM, a one-bit bad dump and an
 underdump made from it; `--other` adds another game's ROM.
+
+The menus' Return to Launcher and Quit end the game at the confirming press. The runtime notes
+the request in a flag that `gb_platform_poll_events()` reads; it used to push an SDL_QUIT, which
+the menu's hold caught and pushed back every frame without the main loop ever seeing it (SDL_PollEvent
+stops at the poll sentinel queued before the push), so the game ran on, unpaced, behind the open
+menu until a second leave. The relaunch registered by Return to Launcher also now checks the
+last leave asked for, so a Quit after it no longer opens the launcher.
+`python tools/check_leave.py` leaves through the Escape menu, the settings window and the debug
+server, and fails on v0.1.9.
 
 Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's options:
 
