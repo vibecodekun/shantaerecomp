@@ -18,6 +18,10 @@ learned. A slider (an object of bank 15) waits at 737,1960 to the right.
   is hit as soon as its protection ends (CB56 back to 0, about 70 frames after
   she appears); with the option she blinks (the blinker 06:72DA) and is not
   hurt until it ends.
+- Turning back (the user's report on 2026-10-07): the monkey flown beside the
+  slider and Select. The turn back (script 0E:4000) protects her until she
+  can move; then the original has nothing and the slider hits her. With the
+  option she blinks from that frame and cannot be hurt for 120 frames.
 - --original <exe> (the previous release's): with the feature off, and with it
   on and both options at the original, the player's object and the dance's
   RAM are the same every frame of a route of dances in and out of rhythm.
@@ -181,6 +185,54 @@ def check_iframes(off, on, state):
           f"{safe_until - appears} frames from the frame she appears, and is not hurt")
 
 
+def turn_back(g, state):
+    """The monkey danced in the pit, flown beside the slider, then Select: she turns back into Shantae."""
+    g.load(state)
+    for b in ["T", "-", "-", "D", "-", "R"] + ["-"] * 200:
+        g.c.command("set_input", buttons=b)
+        step(g.c, 1)
+    assert g.mem(0xCB72, 1)[0] == 1, "not the monkey"
+    g.c.command("shantae_flight")
+    step(g.c, 2)
+    g.c.command("set_input", buttons="R")
+    step(g.c, 65)
+    for b in ["T", "-", "-"]:   # the first Select ends the flight
+        g.c.command("set_input", buttons=b)
+        step(g.c, 1)
+    out = []
+    for b in ["T"] + ["-"] * 260:
+        g.c.command("set_input", buttons=b)
+        step(g.c, 1)
+        s = g.slot()
+        out.append(dict(hp=g.mem(0xCA80, 1)[0], safe=g.mem(0xCB56, 1)[0], hidden=s[0x32] == 0x80,
+                        form=g.mem(0xCB72, 1)[0], routine=(s[0x19], word(s, 0x1B))))
+    return out
+
+
+def check_turn_back(off, on, state):
+    """The turn back (script 0E:4000) protects her until she can move: from then the original has nothing."""
+    for g in (off, on):
+        f = turn_back(g, state)
+        assert f[0]["form"] == 0 and f[0]["safe"], (g.name, "the turn back did not start", f[0])
+        back = next(i for i, x in enumerate(f) if x["routine"] == (0x06, 0x4AA7))
+        assert all(x["safe"] for x in f[:back]), (g.name, "hurtable while turning back")
+        hit = next((i for i, x in enumerate(f) if x["hp"] < f[0]["hp"]), None)
+        hidden = [i for i, x in enumerate(f) if x["hidden"]]
+        if g is off:
+            assert not f[back]["safe"] and hit is not None and back < hit < back + 60 and \
+                not [i for i in hidden if i < hit], \
+                ("the original was not hit after turning back", back, hit, f[back])
+            print_off = f"hit {hit - back} frame{'s' if hit - back != 1 else ''} after she can move"
+        else:
+            safe_until = next(i for i, x in enumerate(f) if i > back and not x["safe"])
+            assert hidden and hidden[0] - back <= 1 and len(hidden) == 60 and hidden[-1] < safe_until, \
+                (back, hidden[:3], len(hidden), safe_until)
+            assert 118 <= safe_until - back <= 122 and hit is None, (back, safe_until, hit)
+    print(f"PASS: turning back into Shantae beside the slider, protected while she turns back. Original: {print_off}. "
+          f"With the option: she blinks and cannot be hurt for {safe_until - back} frames from the frame she can "
+          "move, and is not hurt")
+
+
 ROUTE = [("T", 1), ("-", 6), ("D", 20), ("-", 6), ("R", 20), ("-", 40), ("T", 1), ("-", 10), ("T", 1), ("-", 3),
          ("D", 1), ("-", 1), ("U", 1), ("-", 1), ("A", 1), ("-", 60), ("T", 1), ("-", 2), ("D", 1), ("R", 1),
          ("-", 120)]
@@ -227,8 +279,10 @@ def main():
             check_generous(quick, args.state)
             check_rhythm(rhythm, args.state)
             check_iframes(plain, quick, args.state)
+            check_turn_back(plain, quick, args.state)
             if args.original:
-                old = game("previous release", exe=args.original.resolve())
+                # v0.1.11 and later have the feature, on by default.
+                old = game("previous release", exe=args.original.resolve(), easy_dance=0)
                 check_original(old, [game("feature off", easy_dance=0),
                                      game("both options original", quick_steps=0, transform_invincible=0)], args.state)
             else:

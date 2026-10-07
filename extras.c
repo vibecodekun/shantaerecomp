@@ -568,6 +568,7 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
         return 0x4F;   /* general DMA: the graphics are in VRAM before the picture */
     } else if (bank == 0 && pc == SCRIPTS_PROLOGUE_PC && orig == 0x03) {
         note_player_move(ctx);
+        shantae_forms_script_pass(ctx);
     } else if (bank == 0 && pc == SCRIPTS_NEXT_SLOT_PC && orig == 0x7E) {
         player_script_done(ctx);
     } else if (bank == 3 && pc == SCROLL_BUILT_PC && orig == 0xF8) {

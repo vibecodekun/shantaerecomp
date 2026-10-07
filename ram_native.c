@@ -3,6 +3,7 @@
  * Dispatch is by program location; there is no runtime opcode decoder here.
  */
 #include "gbrt.h"
+#include "dance.h"
 #include "expanded_view.h"
 #include "object_slots.h"
 
@@ -41,6 +42,8 @@ int game_dispatch_override(GBContext* ctx, uint16_t addr) {
         shantae_player_move_return(ctx);
         return 0;
     }
+    /* "After transforming": the blink when she turns back into Shantae. */
+    if (addr == 0x72D2 && shantae_dance_dispatch(ctx, addr)) return 1;
     /* The object table's passes over the slots past 31. */
     if (shantae_slots_dispatch(ctx, addr)) return 1;
     /* The spawner filling an area the expanded view has just revealed. */

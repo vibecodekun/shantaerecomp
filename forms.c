@@ -12,7 +12,11 @@
  * falling, and once its hit is out (its script sets slot+$18) a direction
  * hands on to "start moving". So:
  *
- * - The run flag follows B, as for Shantae (shantae_forms_tick).
+ * - The run flag follows B, as for Shantae (shantae_forms_tick), except on
+ *   the tick of a new B. Their walk routines test the run flag before the new
+ *   B (0D:4877 before 0D:4894, 1C:4E46 before 1C:4E63), so with the flag set
+ *   at once a press while walking would always run and never attack; the
+ *   original's flag waits 15 ticks of B, so it is never set on such a tick.
  * - Slide: the attack gives a speed when a direction is held, run speed with B
  *   held and walk speed without, and turns her. Cancel: a new B with a
  *   direction held is not an attack (the B tests at 0D:4578, 0D:4894, 1C:4C43,
@@ -27,6 +31,14 @@
  * routine (0D:6D3A), whose three LD A,0 to +$41 (0D:6D86) drop it before the
  * run starts again from nothing. Here the idle keeps a speed that a held
  * direction goes on with.
+ *
+ * She flies by flapping: A in her flight routine (0D:72F4) starts the flap
+ * script 0D:7210, whose native call 0D:7256 gives the lift (her vertical speed
+ * at +$44 less $18, and at least $FFFD7F upward), sets the stance CB54 to the
+ * air and plays sound $19. The talon routine (0D:751F) reads no buttons, so
+ * every A during it was lost and she fell. Here a new A during the talon does
+ * what the flap script does for it, at the script pass where the flap script
+ * would, and the talon plays on.
  *
  * The tinkerbat squeezes. Her box (00:2975 loads it from each frame) is 10 by
  * 20 pixels, the monkey's 7 by 14 with the same feet, and the wall and floor
@@ -49,18 +61,26 @@
 int shantae_reduce_input_lag(void);
 int shantae_player_move_early(GBContext *ctx);
 
+#define PAD_A 0x01
 #define PAD_B 0x02
 #define PAD_RIGHT 0x10
 #define PAD_LEFT 0x20
 
 #define PLAYER_POINTER 0xCA13
 #define RUN_FLAG 0xCB3C
+#define STANCE 0xCB54     /* 1 in the air */
 #define FORM 0xCB72
 #define MAP_PAGE 0xC9F9   /* the map's block directory: its page, then its bank */
+#define SOUNDS 0xC203     /* op BC (00:13D7): the newest entry's offset, then 16 entries of 8 bytes */
 
 #define WALK_SPEED 0x100
 #define RUN_SPEED 0x200
 #define SQUEEZED_HEIGHT 14   /* the monkey's box */
+
+#define HARPY_TALON_SCRIPT 0x74E5   /* to 0D:751E; the talon routine follows it */
+#define HARPY_TALON 0x751F
+#define FLAP_LIFT (-0x281)          /* $FFFD7F, 0D:7289 */
+#define FLAP_PULL 0x18              /* 0D:725B */
 
 enum { MONKEY = 1, HARPY = 3, TINKERBAT = 5 };
 
@@ -221,9 +241,41 @@ void shantae_forms_tick(GBContext *ctx) {
     if (!forms_on(ctx)) return;
     const uint8_t form = *global(ctx, FORM);
     if (form != MONKEY && form != TINKERBAT) return;
-    *global(ctx, RUN_FLAG) = (ctx->hram[0x0B] & PAD_B) != 0;
+    /* A new B is the attack, unless cancel turns it into the run (a direction
+     * held). An early move sees no new presses (run_player_move). */
+    const uint8_t held = ctx->hram[0x0B], pressed = ctx->hram[0x0C];
+    const int attack = (pressed & PAD_B) &&
+                       !(shantae_whip_moving() == SHANTAE_WHIP_CANCEL && (held & (PAD_LEFT | PAD_RIGHT)));
+    *global(ctx, RUN_FLAG) = (held & PAD_B) && !attack;
     uint8_t *s;
     if (form == TINKERBAT && (s = player_slot(ctx)) && s[0] != 0xFF) squeeze(ctx, s);
+}
+
+void shantae_forms_script_pass(GBContext *ctx) {
+    if (!forms_on(ctx) || *global(ctx, FORM) != HARPY || !(ctx->hram[0x0C] & PAD_A)) return;
+    uint8_t *s = player_slot(ctx);
+    if (!s || s[0] == 0xFF || s[0x19] != 0x0D || (s[0x1B] | s[0x1C] << 8) != HARPY_TALON) return;
+    /* Still the talon's script: on a landing this tick 0D:694C has set the
+     * landing's. */
+    const unsigned script = s[0x02] | s[0x03] << 8;
+    if (s[0x04] != 0x0D || script < HARPY_TALON_SCRIPT || script >= HARPY_TALON) return;
+    /* 0D:7256: the speed less $18, and at least the flap's lift. */
+    int32_t speed = (int32_t)((uint32_t)(s[0x44] | s[0x45] << 8 | s[0x46] << 16) << 8) >> 8;
+    speed -= FLAP_PULL;
+    if (speed > FLAP_LIFT) speed = FLAP_LIFT;
+    s[0x44] = (uint8_t)speed;
+    s[0x45] = (uint8_t)(speed >> 8);
+    s[0x46] = (uint8_t)(speed >> 16);
+    *global(ctx, STANCE) = 1;   /* op 94 54 CB 01: the talon ends as in the air */
+    /* op BC 19 40 1E 00: the flap's sound. */
+    uint8_t *newest = global(ctx, SOUNDS);
+    *newest = (uint8_t)((*newest + 8) & 0x7F);
+    uint8_t *e = global(ctx, SOUNDS + 1 + *newest);
+    e[0] = 0x01;
+    e[1] = 0x19;
+    e[2] = 0x40;
+    e[3] = 0x1E;
+    e[4] = 0x00;
 }
 
 int shantae_forms_imm(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig, uint8_t *value) {
