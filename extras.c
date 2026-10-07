@@ -48,8 +48,10 @@
  * later, after her script in the same pass. Run straight after her script, the
  * idle routine tested the water where she had drowned and she died again.
  *
- * "Smoother movement" (default on) is in moveset.c: its settings are kept here
- * and its hooks are called from shantae_imm_override.
+ * "Smoother movement" (default on) is in moveset.c, and for the
+ * transformations in forms.c; "Easier dancing" (default on) is in dance.c.
+ * Their settings are kept here and their hooks are called from
+ * shantae_imm_override (dance.c's also from the step hook).
  */
 #include "game_extras.h"
 #include "gbrt.h"
@@ -58,6 +60,8 @@
 #include "expanded_view.h"
 #include "object_slots.h"
 #include "moveset.h"
+#include "dance.h"
+#include "forms.h"
 #include "gb_custom_view.h"
 
 #include <stdio.h>
@@ -90,6 +94,10 @@ static int s_smooth_moves = 1;
 static int s_whip_moving = SHANTAE_WHIP_SLIDE;
 static int s_air_speed_b = 1;
 static int s_fast_crawl = 1;
+static int s_smooth_forms = 1;
+static int s_easy_dance = 1;
+static int s_quick_steps = 1;
+static int s_transform_invincible = 1;
 
 static int clamp_int(int value, int lo, int hi) {
     return value < lo ? lo : value > hi ? hi : value;
@@ -141,6 +149,14 @@ static void load_settings(void) {
             s_air_speed_b = value != 0;
         } else if (sscanf(line, "fast_crawl=%d", &value) == 1) {
             s_fast_crawl = value != 0;
+        } else if (sscanf(line, "smooth_forms=%d", &value) == 1) {
+            s_smooth_forms = value != 0;
+        } else if (sscanf(line, "easy_dance=%d", &value) == 1) {
+            s_easy_dance = value != 0;
+        } else if (sscanf(line, "quick_steps=%d", &value) == 1) {
+            s_quick_steps = value != 0;
+        } else if (sscanf(line, "transform_invincible=%d", &value) == 1) {
+            s_transform_invincible = value != 0;
         }
     }
     fclose(f);
@@ -159,8 +175,10 @@ static void save_settings(void) {
             s_room_zoom);
     fprintf(f, "remove_slowdown=%d\n", s_remove_slowdown);
     fprintf(f, "reduce_input_lag=%d\n", s_reduce_input_lag);
-    fprintf(f, "smooth_moves=%d\nwhip_moving=%d\nair_speed_b=%d\nfast_crawl=%d\n", s_smooth_moves,
-            s_whip_moving, s_air_speed_b, s_fast_crawl);
+    fprintf(f, "smooth_moves=%d\nwhip_moving=%d\nair_speed_b=%d\nfast_crawl=%d\nsmooth_forms=%d\n", s_smooth_moves,
+            s_whip_moving, s_air_speed_b, s_fast_crawl, s_smooth_forms);
+    fprintf(f, "easy_dance=%d\nquick_steps=%d\ntransform_invincible=%d\n", s_easy_dance, s_quick_steps,
+            s_transform_invincible);
     fclose(f);
 }
 
@@ -181,6 +199,24 @@ void shantae_set_air_speed_b(int on) {
 int shantae_fast_crawl(void) { load_settings(); return s_fast_crawl; }
 void shantae_set_fast_crawl(int on) {
     load_settings(); s_fast_crawl = on != 0; save_settings();
+}
+
+int shantae_smooth_forms(void) { load_settings(); return s_smooth_forms; }
+void shantae_set_smooth_forms(int on) {
+    load_settings(); s_smooth_forms = on != 0; save_settings();
+}
+
+int shantae_easy_dance(void) { load_settings(); return s_easy_dance; }
+void shantae_set_easy_dance(int on) {
+    load_settings(); s_easy_dance = on != 0; save_settings();
+}
+int shantae_quick_steps(void) { load_settings(); return s_quick_steps; }
+void shantae_set_quick_steps(int on) {
+    load_settings(); s_quick_steps = on != 0; save_settings();
+}
+int shantae_transform_invincible(void) { load_settings(); return s_transform_invincible; }
+void shantae_set_transform_invincible(int on) {
+    load_settings(); s_transform_invincible = on != 0; save_settings();
 }
 
 int shantae_remove_slowdown(void) { load_settings(); return s_remove_slowdown; }
@@ -506,6 +542,11 @@ static void run_player_move(GBContext *ctx) {
     s_early_moves++;
 }
 
+static void step_hook(GBContext *ctx) {
+    shantae_dance_step(ctx);
+    run_player_move(ctx);
+}
+
 static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig) {
     /* $FFFE is only ever 0, 1 or 3, so $FF makes the GBA test fail. */
     if (bank == 0 && pc == PALETTE_GBA_CHECK_PC && s_original_colors) {
@@ -514,6 +555,10 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     /* "Smoother movement": the player's routines, and the run flag each pass. */
     uint8_t value;
     if (bank == 6 && shantae_moves_imm(ctx, pc, orig, &value)) return value;
+    /* The transformations' routines: the monkey and harpy, the tinkerbat. */
+    if ((bank == 0x0D || bank == 0x1C) && shantae_forms_imm(ctx, bank, pc, orig, &value)) return value;
+    /* "Dancing": the dance routine and its script's native calls. */
+    if (bank == 0x0E && shantae_dance_imm(ctx, pc, orig, &value)) return value;
     if (bank == 0 && orig == 0x03 && (pc == MOVES_PROLOGUE_PC || pc == SCRIPTS_PROLOGUE_PC)) shantae_moves_tick(ctx);
     /* Match the original byte too: the generator also emits HALT-bug copies of
      * these instructions, which read the opcode as the operand. */
@@ -594,7 +639,7 @@ void game_on_init(struct GBContext *ctx) {
      * tower's arena takes three to eight frames of CPU a tick. The frame hold
      * waits that long before it takes a frame for a screen load. */
     if (shantae_expanded_view()) gb_frame_hold_limit = 8u * 70224u;
-    gb_step_hook = run_player_move;
+    gb_step_hook = step_hook;
     gb_game_state.size = sizeof(SpriteLag) + sizeof(PlayerMove) + shantae_view_state_size();
     gb_game_state.save = save_game_state;
     gb_game_state.load = load_game_state;

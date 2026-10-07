@@ -326,6 +326,133 @@ bank = 6
 addr = 0x6DC6
 note = "LD A,$66: its high byte"
 
+# "Smoother movement" for the transformations (forms.c). The monkey's claw
+# (0D:4FC8) and the tinkerbat's sword (1C:57AC) zero her speed like the whip.
+[[imm_override]]
+bank = 0x0D
+addr = 0x4FCC
+note = "LD A,$00 in the monkey's claw 0D:4FC8: her speed, low byte (and the tick's script changes)"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4FCF
+note = "LD A,$00: the claw's speed, pixels"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4FD2
+note = "LD A,$00: the claw's speed, sign"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x57B0
+note = "LD A,$00 in the tinkerbat's sword 1C:57AC: her speed, low byte (and the tick's script changes)"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x57B3
+note = "LD A,$00: the sword's speed, pixels"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x57B6
+note = "LD A,$00: the sword's speed, sign"
+
+# Their jumps take run speed when +$64 is set: CP 0, JR NZ. With the hook B held is run speed.
+[[imm_override]]
+bank = 0x0D
+addr = 0x4E48
+note = "CP $00 on +$64, the monkey's jump moving left"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4E74
+note = "CP $00 on +$64, the monkey's jump moving right"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5518
+note = "CP $00 on +$64, the tinkerbat's fall and jump moving left"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5544
+note = "CP $00 on +$64, the tinkerbat's fall and jump moving right"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5724
+note = "CP $00 on +$64, the tinkerbat's air sword moving left"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5750
+note = "CP $00 on +$64, the tinkerbat's air sword moving right"
+
+# LDH A,($8C) / AND 2 / CP 2: a new B press attacks. With "cancel" and a direction held it is not seen.
+[[imm_override]]
+bank = 0x0D
+addr = 0x4578
+note = "AND $02 on FF8C in the monkey's idle 0D:4510: B pressed"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4894
+note = "AND $02 on FF8C in the monkey's walk 0D:4840: B pressed"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x4C43
+note = "AND $02 on FF8C in the tinkerbat's idle 1C:4BDB: B pressed"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x4E63
+note = "AND $02 on FF8C in the tinkerbat's walk 1C:4E0F: B pressed"
+
+# The harpy's talon (0D:751F) keeps her speed and ends in her idle (0D:6D3A),
+# which zeroes it: with a direction held she keeps it into the run.
+[[imm_override]]
+bank = 0x0D
+addr = 0x6D86
+note = "LD A,$00 in the harpy's idle 0D:6D3A: her speed, low byte"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x6D89
+note = "LD A,$00: the harpy's idle speed, pixels"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x6D8C
+note = "LD A,$00: the harpy's idle speed, sign"
+
+# "Dancing" (dance.c): quick steps. The dance routine 0E:4D40 ORs the held
+# buttons into CB59 while a beat's window is open; with quick steps the window
+# stays shut and each new press is a step, matched against 0E:4342 at once.
+[[imm_override]]
+bank = 0x0E
+addr = 0x4260
+note = "LD A,$01 in 0E:425D, the step ring's fill as a dance starts: clear the steps so far (hook only)"
+
+[[imm_override]]
+bank = 0x0E
+addr = 0x4D48
+note = "AND $04 on FF8C in the dance routine 0E:4D40: this tick's presses as steps (hook only)"
+
+[[imm_override]]
+bank = 0x0E
+addr = 0x4D54
+note = "CP $00 on slot+$18 in 0E:4D40: the beat's window is open -> never, with quick steps"
+
+# "Dancing": invincibility after a transformation. 0E:4EC8 sets the new form
+# as the transformation's object starts; with the option it goes on to the
+# blinker that follows a hit (06:7265), with one more on CB56 for it to take off.
+[[imm_override]]
+bank = 0x0E
+addr = 0x4ECB
+note = "CP $FF on CB81 in 0E:4EC8: a form is set -> stop, and the step hook goes on to 06:7265 (hook only)"
+
 # Inline-argument routines: CALL routine ; <args> -- they read their arguments
 # through the return address and resume past them. Lengths from
 # tools/inline_args.py (straight-line HL increments before PUSH HL), plus two

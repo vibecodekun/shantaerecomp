@@ -9,6 +9,8 @@
 extern "C" {
 #include "expanded_view.h"
 #include "moveset.h"
+#include "forms.h"
+#include "dance.h"
 }
 
 extern "C" int shantae_gba_enhanced(void);
@@ -72,8 +74,29 @@ void game_draw_overlay(struct GBContext *ctx) {
     static const char *const crawls[] = {"Original", "Hold B for walking speed"};
     int crawl = shantae_fast_crawl();
     if (ImGui::Combo("Crawl", &crawl, crawls, 2)) shantae_set_fast_crawl(crawl);
-    ImGui::TextDisabled("Shantae's base form. Changes apply at once.");
+    static const char *const transformations[] = {"Original", "Like Shantae"};
+    int forms = shantae_smooth_forms();
+    if (ImGui::Combo("Transformations", &forms, transformations, 2)) shantae_set_smooth_forms(forms);
+    ImGui::TextDisabled("Monkey and tinkerbat: claw, sword and jumps as above;");
+    ImGui::TextDisabled("the harpy keeps her speed; the tinkerbat squeezes");
+    ImGui::TextDisabled("through gaps the monkey fits. Changes apply at once.");
     if (!smooth) ImGui::EndDisabled();
+
+    ImGui::Separator();
+    bool dance = shantae_easy_dance() != 0;
+    if (ImGui::Checkbox("Easier dancing", &dance)) {
+        shantae_set_easy_dance(dance ? 1 : 0);
+    }
+    ImGui::TextDisabled("After Select, press the steps like a code.");
+    if (!dance) ImGui::BeginDisabled();
+    static const char *const steps[] = {"Original: one step a beat, in rhythm", "Quick: any speed, wrong buttons skipped"};
+    int step_mode = shantae_quick_steps();
+    if (ImGui::Combo("Dance steps", &step_mode, steps, 2)) shantae_set_quick_steps(step_mode);
+    static const char *const afters[] = {"Original", "Blink and stay safe for two seconds"};
+    int safe = shantae_transform_invincible();
+    if (ImGui::Combo("After transforming", &safe, afters, 2)) shantae_set_transform_invincible(safe);
+    ImGui::TextDisabled("Down starts a dance over. Changes apply at once.");
+    if (!dance) ImGui::EndDisabled();
 
     ImGui::Separator();
     bool expanded = shantae_expanded_view() != 0;

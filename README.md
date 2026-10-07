@@ -34,6 +34,8 @@ code was recompiled from that exact ROM.
 | `object_slots.c` | With the expanded view, the object table grown from 32 slots to 157 (past DFFF and at A000 in bank 3) and the collision node pool from 12 to one per slot (towns keep the original 32 and 12) |
 | `ram_native.c` | Native translations of writable JP vectors and the copied DMA routine |
 | `moveset.c` | "Smoother movement": the whip slide and cancel, the run and air speed from B, and the faster crawl, as hooks in Shantae's movement routines ([docs/moveset.md](docs/moveset.md)) |
+| `forms.c` | "Smoother movement" for the transformations: the monkey's and tinkerbat's attack slide, run and air speed, the harpy's speed through her talons, the tinkerbat's squeeze ([docs/moveset.md](docs/moveset.md#transformations)) |
+| `dance.c` | "Easier dancing": the dance's steps entered like a code, each with its pose, and the blink after a transformation ([docs/dance.md](docs/dance.md)) |
 | `launcher_options.c` | Built-in GBA, expanded-view and gameplay features on the launcher's Mods page |
 | `extras_ui.cpp` | In-game Shantae settings, including expanded-view size and the movement options |
 | `game_build.cmake` | Adds game hooks, UI, and regression targets to the generated project |
@@ -53,6 +55,8 @@ code was recompiled from that exact ROM.
 | `tools/check_eyes.py` | The third labyrinth's eye puzzle with the expanded view: the eye settles where its jar was, the socket takes it, the statue gives its key, and another puzzle in view is left alone, from a saved state |
 | `tools/check_pictures.py` | The fourth labyrinth's picture puzzles and key doors with the expanded view against the original, pixel for pixel: each picture and door shows its own state, the puzzle is solved and its key taken, from a saved state |
 | `tools/check_moveset.py` | Shantae's moves with "Smoother movement" beside the original, frame for frame: the whip slide and cancel, air speed, a whip that lands or slides off a ledge, the crawl; and the feature off against the previous release, from a saved state |
+| `tools/check_forms.py` | The transformations with "Smoother movement" beside the original: the monkey's and tinkerbat's slide, cancel and air speed, the harpy's talons, the tinkerbat's squeeze into the ice tower's hidden passage; Transformations off against the previous release, from two saved states |
+| `tools/check_dance.py` | "Easier dancing": every dance of the ROM's table on its last step, skipped and restarted steps, the original rhythm, a slider against the new monkey with and without the blink; the feature off against the previous release, from a saved state |
 | `tools/check_rom_gate.py` | Only the ROM the build was recompiled from starts: the launcher's "ROM verified" line and PLAY, and the runtime's own check, for the ROM, bad dumps made from it, and optionally another game |
 | `tools/check_leave.py` | Leaving from the in-game menus: the first confirmed Return to Launcher ends the game and opens the launcher, Quit ends it and opens nothing, from the Escape menu, the settings window and the debug server |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
@@ -84,7 +88,8 @@ Already cloned without `--recursive`? Run `git submodule update --init`.
 
 The generated project builds for size (MinSizeRel, the recompiled ROM code at
 `-O1`); `game_build.cmake` builds the runtime and this game's modules
-(`expanded_view.c`, `object_slots.c`, `moveset.c`, `extras.c`, `ram_native.c`) at `-O2`,
+(`expanded_view.c`, `object_slots.c`, `moveset.c`, `forms.c`, `dance.c`, `extras.c`,
+`ram_native.c`) at `-O2`,
 since the PPU, APU, timers and the expanded-view compositor run every frame.
 The ROM code keeps its own level, so this does not recompile it.
 
@@ -178,9 +183,29 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
   - **Crawl**: *Hold B for walking speed* (default): she stays down and crawls a pixel a
     frame, twice as fast, with the animation at twice the rate. *Original*: half a
     pixel, and B stands her up into a run.
+  - **Transformations**: *Like Shantae* (default): the monkey and the tinkerbat run at once
+    with B, their claw and sword follow Whip on the move (in the original they stop for 16
+    and 13 frames, even mid-run), and their jumps follow Air speed. The harpy keeps her
+    speed when her talons end (the original stops her for a frame and starts the run again
+    from nothing). The tinkerbat squeezes to the monkey's height where only that fits, so
+    she climbs and walks into gaps the monkey can, such as the ice tower's hidden passage
+    to a warp squid: her box is 20 pixels tall, the monkey's 14, and the passage 16.
+    *Original*: they move as in the game. The elephant and the spider are unchanged.
 
-  Her other forms are untouched: their routines are in other banks. Off plays as the
-  original, frame for frame. The Esc → Shantae controls apply at once.
+  Off plays as the original, frame for frame. The Esc → Shantae controls apply at once.
+- **Easier dancing** (on by default): after Select, the dance's steps are entered like a
+  code (details and addresses in [docs/dance.md](docs/dance.md)):
+  - **Dance steps**: *Quick* (default): every press is a step at once and shows its own
+    pose. A press that goes on to no dance she knows is skipped, Down starts over (every
+    dance begins with it), and the transformation, healing or warp begins on the last
+    step. *Original*: one step every eight beats, in rhythm; a missed or doubled beat
+    breaks the dance, and it begins a pose after the last step.
+  - **After transforming**: *Blink* (default): after an animal transformation she flashes
+    and cannot be hurt for two seconds from the moment she appears, as after a hit.
+    *Original*: she is safe only until the new form's entrance ends, with nothing to show
+    it, and an enemy nearby hits her at once.
+
+  Off plays as the original, frame for frame. The Esc → Shantae controls apply at once.
 - **Expanded view** (off by default): a larger world view with the original pixel
   scale and the status bar at the bottom, 256×240 (NES size) unless changed. Enable
   it on the Mods page, then launch. Its options set the size: **Adaptive** fills the
@@ -208,7 +233,9 @@ Settings are saved to `shantae.ini` next to the exe. `expanded_view=1`,
 `view_width=256` and `view_height=240` select the NES-size view; `remove_slowdown=0`
 brings the slowdown back and `reduce_input_lag=0` the original input timing;
 `smooth_moves=0` the original moves, with `whip_moving` (0 original, 1 slide, 2 cancel),
-`air_speed_b` and `fast_crawl` its options. Menus and dialogue retain their original centered layout.
+`air_speed_b`, `fast_crawl` and `smooth_forms` its options; `easy_dance=0` the original
+dance, with `quick_steps` and `transform_invincible` its options. Menus and dialogue retain
+their original centered layout.
 Towns keep the original picture, object activation and 32-slot object table
 (their building-name panel covers the bottom, their camera wraps at 640 pixels,
 and their doors are found by the low byte of the distance), so every door, label
