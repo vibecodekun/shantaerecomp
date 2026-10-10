@@ -2,7 +2,8 @@
 
 "Smoother movement" (`moveset.c`, on by default; Mods page and Esc → Shantae) changes how
 Shantae's base form handles: holding B runs at once, a whip no longer stops her, B whips
-the moment she lands, her air speed follows B, and she can crawl at walking speed. It is a
+and Select dances the moment she lands, her air speed follows B, and she can crawl at
+walking speed. It is a
 set of hooks in her own
 movement routines in bank 6. Its *Transformations* option (`forms.c`, below) does the same
 for the monkey and the tinkerbat, keeps the harpy's speed through her talons, and lets the
@@ -28,7 +29,7 @@ animation frames and installs the next routine.
 | Walk | 06:502A | 06:4FD5 | 1 pixel a tick (`$000100` at +$41; left is `$FFFEFF`) |
 | Run | 06:6A8C | 06:6A37 | 2 pixels a tick, while B is held; sets +$64 |
 | Jump, fall | 06:5520 | 06:5364, 06:5457 | 2 pixels a tick when +$64 is set, else 1 |
-| Landing | 06:59E9 | 06:59C2 | a landing with no direction held: A, a direction or Down, never B |
+| Landing | 06:59E9 | 06:59C2 | a landing with no direction held: A, a direction or Down, never B or Select |
 | Whip | 06:5E52 | 06:5D61 | 8 frames of 3 ticks (+$6E counts them); the hit on the fifth (04:5641) |
 | Whip, resumed | 06:5E52 | 06:5DCB | from the frame in +$6E: an air whip that landed |
 | Air whip | 06:6CCD | 06:6C2C | moves like the jump |
@@ -55,16 +56,16 @@ pixel a tick however long B has been held, and a running jump at 2 even with B r
 resumes the ground whip at the same frame (06:6D96 → script 06:5DCB), whose routine zeroes
 her speed.
 
-**A standing landing loses B.** When the jump routine lands her (06:5683) with Left or Right
-held she starts moving, with Down she crouches, and otherwise it sets the landing script
-06:59C2: the landing routine 06:59E9 for four frames of landing (24 ticks), then the idle
-script. The
-landing routine takes a new A (a jump, 06:5A0B), a direction or Down, but has no test for B,
-and the landing script is set over the air whip that a new B started earlier in the same tick
-(06:560C). So a B pressed on the frame she lands, or on any of the 24 after it, is lost (the
-user's report on 2026-10-10: the whip "as soon as I land on the ground from a standstill").
-The other forms' landings take their attack (the tinkerbat's 1C:5596 tests B at 1C:55AC) or
-have none.
+**A standing landing loses B and Select.** When the jump routine lands her (06:5683) with
+Left or Right held she starts moving, with Down she crouches, and otherwise it sets the
+landing script 06:59C2: the landing routine 06:59E9 for four frames of landing (24 ticks),
+then the idle script. The landing routine takes a new A (a jump, 06:5A0B), a direction or
+Down, but has no test for B or Select, and the landing script is set over the air whip that
+a new B started earlier in the same tick (06:560C); the jump routine has no Select at all.
+So a B or a Select pressed on the frame she lands, or on any of the 24 after it, is lost (the
+user's report on 2026-10-10: the whip "as soon as I land on the ground from a standstill",
+and Select the same). The other forms' landings take their attack (the tinkerbat's 1C:5596
+tests B at 1C:55AC) or have none.
 
 The crawl has the same shape: B pressed is a crouch whip on the spot (06:64D1), and with
 the run flag set and a direction held the crawl routine stands her up into the run
@@ -113,15 +114,20 @@ with the crawl option, while Down is held.
   06:5DCB (the script address at 06:6DA4 and 06:6DA7), or with Down held to the crawl
   (06:6DC3, 06:6DC6).
 
-**B as she lands.** In the landing routine a new B takes the A's branch (the `AND 1` at
-06:5A0D and the `CP 1` at 06:5A0F see B) to the whip script 06:5D61 instead of the jump's
-06:5364 (the script address at 06:5A86 and 06:5A89), before A, as the idle routine tests B
-first (06:4AD4). With *Cancel* and a direction held it does not, and the direction starts
-her moving as in the idle routine. On the landing frame itself, the script the landing sets
-(06:56BB, 06:56BE) is the whip in place of 06:59C2 when her script is the air whip that the
-jump routine has just started for a new B, so the code watcher 0E:5DE0 that guards the jump
-routine's B still applies. The whip is the one from standing, its hit on the same frame of
-it, and "Reduce input lag" runs it in the tick of the press as it does from standing.
+**B and Select as she lands.** The idle routine tests a new B (the whip, 06:4B9F), then A
+(the jump), then Select (the dance: script 0E:4179, 06:4B5D), each a branch that sets her
+script and returns, as the landing routine's A branch (06:5A78) does. In the landing routine
+a new B, or a new Select without B or A, takes the A's branch (the `AND 1` at 06:5A0D and
+the `CP 1` at 06:5A0F see it) to the whip script 06:5D61 or the dance script 0E:4179
+instead of the jump's 06:5364 (the script address at 06:5A86 and 06:5A89, its bank at
+06:5A8C). With *Cancel* and a direction held B is not seen, and the direction starts her
+moving as in the idle routine. On the landing frame itself, the script the landing sets
+(06:56BB, 06:56BE, its bank at 06:56C1) is the whip in place of 06:59C2 when her script is
+the air whip that the jump routine has just started for a new B, so the code watcher 0E:5DE0
+that guards the jump routine's B still applies (it never takes Select), or the dance for a
+new Select without A or B. Neither happens while scripts hold her input (`CB70` set, which
+the idle routine tests before any button). The whip and the dance are the ones from standing,
+and "Reduce input lag" runs them in the tick of the press as it does from standing.
 
 **Air speed** (`air_speed_b`). The `CP 0` after each read of +$64 (06:5637, 06:5663,
 06:6D37, 06:6D63) compares with a value that makes it "not zero" while B is held and
@@ -246,9 +252,9 @@ All are `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_moves_i
 | 06:4AD6, 509C, 60EF, 64D3 | `AND $02` | cancel: no whip with a direction held |
 | 06:6DA4, 6DA7 | `LD A,$CB/$5D` | cancel: the script an air whip lands in |
 | 06:6DC3, 6DC6 | `LD A,$81/$66` | cancel: the same with Down held |
-| 06:56BB, 56BE | `LD A,$C2/$59` | the landing frame: the whip's script for the air whip's B |
-| 06:5A0D, 5A0F | `AND $01`, `CP $01` | the landing routine: a new B takes the jump's branch |
-| 06:5A86, 5A89 | `LD A,$64/$53` | that branch's script is the whip's |
+| 06:56BB, 56BE, 56C1 | `LD A,$C2/$59/$06` | the landing frame: the whip's script for the air whip's B, the dance's for Select |
+| 06:5A0D, 5A0F | `AND $01`, `CP $01` | the landing routine: a new B or Select takes the jump's branch |
+| 06:5A86, 5A89, 5A8C | `LD A,$64/$53/$06` | that branch's script is the whip's or the dance's |
 
 The transformations' sites; the hook is `shantae_forms_imm` in `forms.c`, the run flag
 and the squeeze are `shantae_forms_tick`, called with Shantae's, and the harpy's flap during
@@ -285,6 +291,11 @@ feature off and on, a frame at a time, and reads her object:
   whip in the original; with the feature the whip from that frame, its hit 12 frames on as
   from standing, with and without "Reduce input lag" and in every whip mode; with Right held
   too, the slide whips and cancel runs.
+- Select pressed the same way: no dance in the original; with the feature the dance from
+  that frame, its routine and script frame for frame as from standing, with and without
+  "Reduce input lag", and Down, Right from there makes the monkey. A with Select jumps and
+  B with Select whips, as from standing; with `CB70` set (input held) neither B nor Select
+  starts anything.
 - A slide off the platform's edge: whip, air whip (the hit lands in the air), whip, run.
 - The crawl: half a pixel; with B one pixel, crouched throughout; the original stands
   and runs; the crawl option off.

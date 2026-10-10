@@ -62,7 +62,7 @@ void game_draw_overlay(struct GBContext *ctx) {
         shantae_set_smooth_moves(smooth ? 1 : 0);
     }
     ImGui::TextDisabled("Holding B runs at once, on the ground and in the air,");
-    ImGui::TextDisabled("and B whips the moment she lands.");
+    ImGui::TextDisabled("and B whips and Select dances the moment she lands.");
     if (!smooth) ImGui::BeginDisabled();
     // In the order of SHANTAE_WHIP_*.
     static const char *const whips[] = {"Original: stop to whip", "Slide: whip and keep moving",

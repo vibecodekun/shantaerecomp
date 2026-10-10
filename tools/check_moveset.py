@@ -250,12 +250,21 @@ def landing(g, state):
     return land
 
 
-def land_and_press(g, state, land, k, buttons):
-    """A standing jump, the buttons pressed for one frame k frames after it lands: the frames from the press."""
+def land_and_press(g, state, land, k, buttons, before=None):
+    """A standing jump, the buttons pressed for one frame k frames after it lands: the frames from the press.
+    before(g) runs just before the press."""
     g.load(state)
     g.play("A", 6)
     g.play("-", land - 6 + k)
+    if before:
+        before(g)
     return g.play(buttons, 1) + g.play("-", 30)
+
+
+def dance(f):
+    """Her routine and script on each frame while she dances (the dance routine 0E:4D40), from the first."""
+    out = [(x["slot"][0x19], x["routine"], x["slot"][4], word(x["slot"], 2)) for x in f]
+    return out if out and out[0][:2] == (0x0E, 0x4D40) else None
 
 
 def check_land_whip(off, slide, cancel, nolag, state):
@@ -287,6 +296,41 @@ def check_land_whip(off, slide, cancel, nolag, state):
     print(f"PASS: B pressed on the frame a standing jump lands and on each of the 24 after it. Original: no whip "
           f"(the landing routine 06:59E9 takes no B). With the feature: the whip from that frame, its hit {at} frames "
           "on as from standing, with and without Reduce input lag; with a direction, the slide whips and cancel runs")
+
+
+def check_land_dance(off, slide, nolag, state):
+    """Select pressed as she lands from a standing jump (the user's request on 2026-10-10): the dance, as
+    from standing (the idle routine's 06:4B5D, script 0E:4179)."""
+    land = landing(off, state)
+    for k in range(25):
+        f = land_and_press(off, state, land, k, "T")
+        assert not any(x["slot"][0x19] == 0x0E for x in f), ("the original danced as she landed", k)
+    for g in (slide, nolag):
+        ref = dance(land_and_press(g, state, land, 25, "T"))
+        assert ref, (g.name, "the dance from standing")
+        for k in range(25):
+            assert dance(land_and_press(g, state, land, k, "T")) == ref, (g.name, "Select as she lands", k)
+    # The dance goes on as any: Down, Right a frame apart is the monkey.
+    land_and_press(slide, state, land, 3, "T")
+    for b in ("D", "-", "R"):
+        slide.play(b, 1)
+    slide.play("-", 120)
+    assert slide.mem(0xCB72, 1)[0] == 1, "the monkey, danced from a landing"
+    # The idle routine's order: B, then A, then Select.
+    f = land_and_press(slide, state, land, 5, "AT")
+    assert f[0]["routine"] == JUMP and not dance(f), ("A and Select as she lands", routines(f))
+    f = land_and_press(slide, state, land, 5, "BT")
+    assert f[0]["routine"] == WHIP and not dance(f), ("B and Select as she lands", routines(f))
+    # While scripts hold her input (CB70), as in the idle routine: nothing.
+    def hold(g):
+        g.c.command("poke", addr="0xcb70", hex="01")
+    for buttons in ("B", "T"):
+        f = land_and_press(slide, state, land, 5, buttons, hold)
+        assert WHIP not in routines(f) and not dance(f), ("input held", buttons, routines(f))
+    print("PASS: Select pressed on the frame a standing jump lands and on each of the 24 after it. Original: no "
+          "dance. With the feature: the dance from that frame, its routine and script as from standing, with and "
+          "without Reduce input lag, and Down, Right from there is the monkey; A with it jumps and B whips, as "
+          "standing; with the input held (CB70) neither B nor Select starts anything")
 
 
 def check_ledge(slide, state):
@@ -402,6 +446,7 @@ def main():
             check_air(off, slide, args.state)
             check_landing(off, slide, cancel, args.state)
             check_land_whip(off, slide, cancel, nolag, args.state)
+            check_land_dance(off, slide, nolag, args.state)
             check_ledge(slide, args.state)
             check_crawl(off, slide, cancel, plain, args.state)
             if args.form_state.exists():

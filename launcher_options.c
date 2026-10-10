@@ -222,8 +222,8 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
         snprintf(out->description, sizeof(out->description),
                  "Shantae keeps her momentum. Holding B runs at once, on the ground and in the "
                  "air: B with a direction whips while she runs (or just runs, with Cancel), a "
-                 "jump moves at running speed while B is held, B whips the moment she lands, a "
-                 "landing whip no longer stops her, and B crawls at walking speed. With "
+                 "jump moves at running speed while B is held, B and Select work the moment she "
+                 "lands, a landing whip no longer stops her, and B crawls at walking speed. With "
                  "Transformations the monkey and tinkerbat move the same way, the harpy keeps "
                  "her speed and flaps through her talons, and the tinkerbat squeezes through "
                  "gaps the monkey fits. Off plays as the original.");

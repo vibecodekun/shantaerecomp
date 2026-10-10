@@ -44,10 +44,13 @@
  *
  * - Landing. A landing with no direction held plays the landing script 06:59C2:
  *   24 ticks of the routine 06:59E9, which takes A, a direction or Down but
- *   never B, so a whip pressed as she lands was lost. The landing itself (06:5683
- *   in the jump routine) sets that script over the air whip a new B started in
- *   the same tick. Here a new B is the whip script 06:5D61 in both, as the idle
- *   routine starts it (B before A; with cancel a direction runs instead).
+ *   never B or Select, so a whip or a dance pressed as she lands was lost. The
+ *   landing itself (06:5683 in the jump routine) sets that script over the air
+ *   whip a new B started in the same tick, and the jump routine has no Select.
+ *   Here they start as the idle routine starts them, in its order (06:4AD4: B,
+ *   A, Select): a new B is the whip script 06:5D61 (with cancel a direction runs
+ *   instead), a new Select the dance script 0E:4179, in both. Nothing is started
+ *   while scripts hold her input (CB70), which the idle routine tests first.
  *
  * Nothing here is kept between ticks: every decision is made from the joypad
  * and the object, so save states and rollback need nothing from this file.
@@ -61,7 +64,9 @@
 int shantae_reduce_input_lag(void);
 int shantae_player_move_early(GBContext *ctx);
 
+#define PAD_A 0x01
 #define PAD_B 0x02
+#define PAD_SELECT 0x04
 #define PAD_RIGHT 0x10
 #define PAD_LEFT 0x20
 #define PAD_DOWN 0x80
@@ -73,6 +78,7 @@ int shantae_player_move_early(GBContext *ctx);
 #define AIRBORNE 0xCB42        /* with ON_GROUND clear: 06:47B9 starts the fall */
 #define JUMP_HOLD 0xCB55       /* frames a held A still lifts her */
 #define STANCE 0xCB54          /* 0 standing, 1 in the air, 2 crouched */
+#define INPUT_HELD 0xCB70      /* set by scripts: the idle routine reads no buttons (06:4AA7) */
 #define FORM 0xCB72            /* 0 herself, 1-5 a transformation */
 
 #define SCRIPT_MOVE 0x4FCE         /* walk, or run with the run flag */
@@ -90,6 +96,8 @@ int shantae_player_move_early(GBContext *ctx);
 #define SCRIPT_AIR_WHIP 0x6C2C     /* as the jump routine starts it for a new B (06:560C) */
 #define AIR_WHIP_ROUTINE 0x6CCD
 #define LANDING_ROUTINE 0x59E9
+#define SCRIPT_DANCE 0x4179        /* bank 0E, as the idle routine starts it (06:4B5D) */
+#define DANCE_BANK 0x0E
 
 #define WALK_SPEED 0x100
 #define RUN_SPEED 0x200
@@ -260,12 +268,26 @@ static int crawl_speed(GBContext *ctx, uint8_t *s, int left, int first, uint32_t
     return 1;
 }
 
-/* A new B in the landing routine whips, as in the idle routine (06:4AD4,
- * before its A), except with cancel and a direction held, where she runs. */
-static int landing_whip(GBContext *ctx, const uint8_t *s) {
+/* What a new press starts in the landing routine, in the idle routine's order
+ * (06:4AD4): PAD_B the whip, PAD_SELECT the dance, 0 nothing new (A is the
+ * routine's own jump; with cancel and a direction held B is not seen). */
+static uint8_t landing_press(GBContext *ctx, const uint8_t *s) {
+    const uint8_t pressed = ctx->hram[0x0C];
     const int moving = (ctx->hram[0x0B] & (PAD_LEFT | PAD_RIGHT)) != 0;
-    return (ctx->hram[0x0C] & PAD_B) && s[0x19] == 0x06 && (s[0x1B] | s[0x1C] << 8) == LANDING_ROUTINE &&
-           !(shantae_whip_moving() == SHANTAE_WHIP_CANCEL && moving);
+    if (*global(ctx, INPUT_HELD) || s[0x19] != 0x06 || (s[0x1B] | s[0x1C] << 8) != LANDING_ROUTINE) return 0;
+    if ((pressed & PAD_B) && !(shantae_whip_moving() == SHANTAE_WHIP_CANCEL && moving)) return PAD_B;
+    return pressed & PAD_A ? 0 : pressed & PAD_SELECT;
+}
+
+/* The script the landing frame starts in place of the landing (06:56AD): the
+ * whip over the air whip the jump routine has just started for a new B (its B
+ * test is behind the code watcher 0E:5DE0, as the idle's is), or the dance for
+ * a new Select without A or B. 0 for the landing. */
+static unsigned landing_frame_script(GBContext *ctx, const uint8_t *s) {
+    const uint8_t pressed = ctx->hram[0x0C];
+    if (*global(ctx, INPUT_HELD)) return 0;
+    if (script_is(s, SCRIPT_AIR_WHIP)) return SCRIPT_WHIP;
+    return (pressed & PAD_SELECT) && !(pressed & (PAD_A | PAD_B)) ? SCRIPT_DANCE : 0;
 }
 
 int shantae_moves_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value) {
@@ -320,29 +342,41 @@ int shantae_moves_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value)
             return 0;
         *value = (uint8_t)(pc == 0x6DC3 ? SCRIPT_CRAWL : SCRIPT_CRAWL >> 8);
         return 1;
-    case 0x56BB:                                          /* LD A,$C2: a standing landing's script */
-        /* Over the air whip the jump routine started this tick for a new B
-         * (its B test is behind the code watcher 0E:5DE0, as the idle's is). */
-        if (orig != (uint8_t)SCRIPT_LANDING || !script_is(s, SCRIPT_AIR_WHIP)) return 0;
-        *value = (uint8_t)SCRIPT_WHIP;
+    case 0x56BB: {                                        /* LD A,$C2: a standing landing's script */
+        const unsigned script = landing_frame_script(ctx, s);
+        if (orig != (uint8_t)SCRIPT_LANDING || !script) return 0;
+        *value = (uint8_t)script;
         return 1;
+    }
     case 0x56BE:                                          /* LD A,$59: its high byte */
-        /* The low byte is stored by now: the whip's only when the hook above
-         * gave it (the original stores $C2). */
-        if (orig != SCRIPT_LANDING >> 8 || s[0x02] != (uint8_t)SCRIPT_WHIP) return 0;
-        *value = SCRIPT_WHIP >> 8;
+        /* The low byte is stored by now: the whip's or the dance's only when
+         * the hook above gave it (the original stores $C2). */
+        if (orig != SCRIPT_LANDING >> 8) return 0;
+        if (s[0x02] == (uint8_t)SCRIPT_WHIP) *value = SCRIPT_WHIP >> 8;
+        else if (s[0x02] == (uint8_t)SCRIPT_DANCE) *value = SCRIPT_DANCE >> 8;
+        else return 0;
+        return 1;
+    case 0x56C1:                                          /* LD A,$06: its bank */
+        if (orig != 0x06 || s[0x02] != (uint8_t)SCRIPT_DANCE || s[0x03] != SCRIPT_DANCE >> 8) return 0;
+        *value = DANCE_BANK;
         return 1;
     case 0x5A0D:                                          /* AND 1 on FF8C in 06:59E9: A pressed */
-        if (orig != 0x01 || !landing_whip(ctx, s)) return 0;
-        *value = PAD_B;
+    case 0x5A0F: {                                        /* CP 1: the jump's branch */
+        const uint8_t press = landing_press(ctx, s);
+        if (orig != 0x01 || !press) return 0;
+        *value = press;
         return 1;
-    case 0x5A0F:                                          /* CP 1: the jump's branch */
-        if (orig != 0x01 || !landing_whip(ctx, s)) return 0;
-        *value = PAD_B;
+    }
+    case 0x5A86: case 0x5A89: {                           /* LD A,$64/$53: the jump's script */
+        const uint8_t press = landing_press(ctx, s);
+        if (orig != (pc == 0x5A86 ? (uint8_t)SCRIPT_JUMP : SCRIPT_JUMP >> 8) || !press) return 0;
+        const unsigned script = press == PAD_B ? SCRIPT_WHIP : SCRIPT_DANCE;
+        *value = (uint8_t)(pc == 0x5A86 ? script : script >> 8);
         return 1;
-    case 0x5A86: case 0x5A89:                             /* LD A,$64/$53: the jump's script */
-        if (orig != (pc == 0x5A86 ? (uint8_t)SCRIPT_JUMP : SCRIPT_JUMP >> 8) || !landing_whip(ctx, s)) return 0;
-        *value = (uint8_t)(pc == 0x5A86 ? SCRIPT_WHIP : SCRIPT_WHIP >> 8);
+    }
+    case 0x5A8C:                                          /* LD A,$06: its bank */
+        if (orig != 0x06 || landing_press(ctx, s) != PAD_SELECT) return 0;
+        *value = DANCE_BANK;
         return 1;
     }
     return 0;
