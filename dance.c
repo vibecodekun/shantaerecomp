@@ -39,23 +39,23 @@
  * one off. After a hit her form's script spawns a blinker (06:7265, script
  * 06:72DA) that flashes her sprite for 120 ticks and then takes its one off. A
  * transformation adds one at the match (0E:4207) and spawns an object (0E:4458,
- * script 0E:4E82) that sets the new form (0E:4EC8) and takes it off once her
- * form's entrance has cleared CB80: in all about 50 ticks after she can move,
- * and nothing shows it. With the option on, setting a form (CB81 not $FF; the
- * heal dance passes $FF) adds one more and spawns the blinker, as after a hit:
- * she flashes and cannot be hurt for 120 ticks from the moment she appears.
- * 0E:4EC8 returns to the script VM's native call (00:1A5B), which restores the
- * ROM bank, so its RET becomes a jump to 06:7265: the CP $FF at 0E:4ECB stops
- * there, and shantae_dance_step does the routine's last store and the jump.
+ * script 0E:4E82) that sets the new form (0E:4EC8), shows her as a silhouette
+ * (the background white, the sprites black), fades the colours back and, on the
+ * tick they are back, takes the one off with the call to 06:72D2 at 0E:4F7D:
+ * about 70 ticks after she appears and 50 after she can move, with nothing to
+ * show it. The heal dance runs the same object without a form (CB81 $FF).
  *
  * Turning back into Shantae (Select in a form) runs the script 0E:4000: two
  * added at its start (06:72CD twice), one taken off by its effect, and the last
  * taken off by the call to 06:72D2 at 0E:407B, on the tick she can move again
  * (her idle script 06:49F2 follows), so nothing protects her from then on.
- * With the option that call goes to 06:7265 instead: the blinker takes over the
- * one she still has, flashes her and takes it off 120 ticks later. Op 32
- * (00:1A46) reaches it with JP HL, so the dispatcher offers 06:72D2 to
- * shantae_dance_dispatch, which tells this call by op 32's stack.
+ *
+ * With the option both calls go to 06:7265 instead: the blinker takes over the
+ * one she still has, flashes her and takes it off 120 ticks later. So she
+ * blinks from the end of a transformation's silhouette, and from the tick she
+ * can move after turning back. Op 32 (00:1A46) reaches the routine with JP HL,
+ * so the dispatcher offers 06:72D2 to shantae_dance_dispatch, which tells these
+ * two calls by op 32's stack.
  */
 #include "dance.h"
 #include "gbrt.h"
@@ -71,11 +71,11 @@
 #define FORM 0xCB72
 #define NEXT_FORM 0xCB81
 
-#define SET_FORM_TEST 0x4ECD   /* 0E: after the CP $FF in 0E:4EC8 */
 #define BLINKER 0x7265         /* 06: spawns the blinker */
 #define TAKE_ONE_OFF 0x72D2    /* 06: CB56 less one, if set */
 #define NATIVE_RETURN 0x1A5B   /* 00: after op 32's CALL 00:1A66 */
 #define TURN_BACK_LAST 0x407F  /* 0E: after the turn back's call to 06:72D2 (op 32 at 0E:407B) */
+#define SILHOUETTE_END 0x4F81  /* 0E: after the transformation's call to 06:72D2 (op 32 at 0E:4F7D) */
 
 #define DANCE_BANK 0x0E
 #define DANCES 0x4342       /* 0E: the table 0E:42D2 matches with */
@@ -204,11 +204,6 @@ static int quick_steps(GBContext *ctx) {
            ctx->rom_size >= (DANCE_BANK + 1) * 0x4000u;
 }
 
-/* A form, not the heal dance's $FF, is being set by 0E:4EC8 (A is CB81). */
-static int blink_on_appearing(GBContext *ctx) {
-    return shantae_easy_dance() && shantae_transform_invincible() && ctx->wram && ctx->a != 0xFF;
-}
-
 int shantae_dance_dispatch(GBContext *ctx, uint16_t addr) {
     if (addr != TAKE_ONE_OFF || ctx->rom_bank != 0x06 || !ctx->wram || !shantae_easy_dance() ||
         !shantae_transform_invincible())
@@ -216,24 +211,17 @@ int shantae_dance_dispatch(GBContext *ctx, uint16_t addr) {
     /* Op 32's stack: its return, DE (the script after the call), BC (the
      * object) and AF with the script's bank in A (00:1A48). */
     const uint16_t sp = ctx->sp;
+    const uint16_t script = gb_read16(ctx, (uint16_t)(sp + 2)), object = gb_read16(ctx, (uint16_t)(sp + 4));
     const unsigned p = *global(ctx, PLAYER_POINTER) | *global(ctx, PLAYER_POINTER + 1) << 8;
-    if (gb_read16(ctx, sp) != NATIVE_RETURN || gb_read16(ctx, (uint16_t)(sp + 2)) != TURN_BACK_LAST ||
-        gb_read16(ctx, (uint16_t)(sp + 4)) != p || gb_read16(ctx, (uint16_t)(sp + 6)) >> 8 != DANCE_BANK)
-        return 0;
+    if (gb_read16(ctx, sp) != NATIVE_RETURN || gb_read16(ctx, (uint16_t)(sp + 6)) >> 8 != DANCE_BANK) return 0;
+    if (script == TURN_BACK_LAST) {
+        if (object != p) return 0;
+    } else if (script != SILHOUETTE_END || shantae_slot_index(ctx, object) < 0 || !*global(ctx, FORM)) {
+        return 0;   /* not the transformation's object, or the heal dance's (no form) */
+    }
     if (!*global(ctx, INVINCIBLE)) *global(ctx, INVINCIBLE) = 1;   /* one for the blinker to take off */
     ctx->pc = BLINKER;
     return 1;
-}
-
-void shantae_dance_step(GBContext *ctx) {
-    if (ctx->pc != SET_FORM_TEST || ctx->rom_bank != DANCE_BANK || !blink_on_appearing(ctx)) return;
-    /* LD (CB72),A and RET at 0E:4ECE; the RET goes on to the blinker, which
-     * returns to 00:1A5B in its place. */
-    *global(ctx, FORM) = ctx->a;
-    (*global(ctx, INVINCIBLE))++;
-    ctx->hram[0x11] = 0x06;
-    gb_write8(ctx, 0x2000, 0x06);
-    ctx->pc = BLINKER;
 }
 
 int shantae_dance_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value) {
@@ -252,9 +240,6 @@ int shantae_dance_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value)
         if (orig != 0x00 || !quick_steps(ctx) || !player(ctx)) return 0;
         *value = (uint8_t)~ctx->a;
         return 1;
-    case 0x4ECB:   /* CP $FF on CB81 in 0E:4EC8: the new form is set */
-        if (orig == 0xFF && blink_on_appearing(ctx)) ctx->stopped = 1;
-        return 0;
     }
     return 0;
 }

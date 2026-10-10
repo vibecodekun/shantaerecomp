@@ -42,6 +42,13 @@
  * for (they call 06:475C but not 06:47B9). On the next tick the standing whip
  * becomes the air whip at the same frame, and the crouch whip the fall.
  *
+ * - Landing. A landing with no direction held plays the landing script 06:59C2:
+ *   24 ticks of the routine 06:59E9, which takes A, a direction or Down but
+ *   never B, so a whip pressed as she lands was lost. The landing itself (06:5683
+ *   in the jump routine) sets that script over the air whip a new B started in
+ *   the same tick. Here a new B is the whip script 06:5D61 in both, as the idle
+ *   routine starts it (B before A; with cancel a direction runs instead).
+ *
  * Nothing here is kept between ticks: every decision is made from the joypad
  * and the object, so save states and rollback need nothing from this file.
  */
@@ -69,7 +76,10 @@ int shantae_player_move_early(GBContext *ctx);
 #define FORM 0xCB72            /* 0 herself, 1-5 a transformation */
 
 #define SCRIPT_MOVE 0x4FCE         /* walk, or run with the run flag */
+#define SCRIPT_JUMP 0x5364
 #define SCRIPT_FALL 0x5457
+#define SCRIPT_LANDING 0x59C2      /* a standing landing: 24 ticks of 06:59E9 */
+#define SCRIPT_WHIP 0x5D61         /* as the idle routine starts it (06:4B9F) */
 #define SCRIPT_WHIP_END_A 0x5DC7   /* the goto 06:49F2 after the whip's last frame */
 #define SCRIPT_WHIP_END_B 0x5E4E   /* the same in the resumed whip */
 #define SCRIPT_CROUCH_WHIP_END_A 0x6678   /* the test of +$65 after the crouch whip's last frame */
@@ -77,7 +87,9 @@ int shantae_player_move_early(GBContext *ctx);
 #define SCRIPT_CRAWL 0x6259        /* crawl, or run with the run flag */
 #define SCRIPT_CRAWL_LOW 0x6260    /* crawl under a low ceiling */
 #define SCRIPT_RUN 0x6A37
+#define SCRIPT_AIR_WHIP 0x6C2C     /* as the jump routine starts it for a new B (06:560C) */
 #define AIR_WHIP_ROUTINE 0x6CCD
+#define LANDING_ROUTINE 0x59E9
 
 #define WALK_SPEED 0x100
 #define RUN_SPEED 0x200
@@ -248,6 +260,14 @@ static int crawl_speed(GBContext *ctx, uint8_t *s, int left, int first, uint32_t
     return 1;
 }
 
+/* A new B in the landing routine whips, as in the idle routine (06:4AD4,
+ * before its A), except with cancel and a direction held, where she runs. */
+static int landing_whip(GBContext *ctx, const uint8_t *s) {
+    const int moving = (ctx->hram[0x0B] & (PAD_LEFT | PAD_RIGHT)) != 0;
+    return (ctx->hram[0x0C] & PAD_B) && s[0x19] == 0x06 && (s[0x1B] | s[0x1C] << 8) == LANDING_ROUTINE &&
+           !(shantae_whip_moving() == SHANTAE_WHIP_CANCEL && moving);
+}
+
 int shantae_moves_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value) {
     uint8_t *s;
     uint32_t speed;
@@ -299,6 +319,30 @@ int shantae_moves_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value)
         if (orig != (pc == 0x6DC3 ? 0x81 : 0x66) || shantae_whip_moving() != SHANTAE_WHIP_CANCEL || !moving)
             return 0;
         *value = (uint8_t)(pc == 0x6DC3 ? SCRIPT_CRAWL : SCRIPT_CRAWL >> 8);
+        return 1;
+    case 0x56BB:                                          /* LD A,$C2: a standing landing's script */
+        /* Over the air whip the jump routine started this tick for a new B
+         * (its B test is behind the code watcher 0E:5DE0, as the idle's is). */
+        if (orig != (uint8_t)SCRIPT_LANDING || !script_is(s, SCRIPT_AIR_WHIP)) return 0;
+        *value = (uint8_t)SCRIPT_WHIP;
+        return 1;
+    case 0x56BE:                                          /* LD A,$59: its high byte */
+        /* The low byte is stored by now: the whip's only when the hook above
+         * gave it (the original stores $C2). */
+        if (orig != SCRIPT_LANDING >> 8 || s[0x02] != (uint8_t)SCRIPT_WHIP) return 0;
+        *value = SCRIPT_WHIP >> 8;
+        return 1;
+    case 0x5A0D:                                          /* AND 1 on FF8C in 06:59E9: A pressed */
+        if (orig != 0x01 || !landing_whip(ctx, s)) return 0;
+        *value = PAD_B;
+        return 1;
+    case 0x5A0F:                                          /* CP 1: the jump's branch */
+        if (orig != 0x01 || !landing_whip(ctx, s)) return 0;
+        *value = PAD_B;
+        return 1;
+    case 0x5A86: case 0x5A89:                             /* LD A,$64/$53: the jump's script */
+        if (orig != (pc == 0x5A86 ? (uint8_t)SCRIPT_JUMP : SCRIPT_JUMP >> 8) || !landing_whip(ctx, s)) return 0;
+        *value = (uint8_t)(pc == 0x5A86 ? SCRIPT_WHIP : SCRIPT_WHIP >> 8);
         return 1;
     }
     return 0;

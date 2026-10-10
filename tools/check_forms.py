@@ -1,9 +1,10 @@
 """The transformations with "Smoother movement" (forms.c), beside the original.
 
-Two states: logs/states/dance.state (the user's state1 on 2026-10-06: Shantae
-in a desert pit at 400,1984, every dance learned), turned into the monkey and
-the harpy with a quick dance; and logs/states/tinkerbat-gap.state (the user's
-state2: the tinkerbat on a ledge of the ice tower at 5245,1176). Right of the
+Two states, made by tools/make_states.py from a debug game (every dance
+learned): logs/states/dance.state (Shantae in a desert pit at 400,1984),
+turned into the monkey and the harpy with a quick dance; and
+logs/states/tinkerbat-gap.state (the tinkerbat on a ledge of the ice tower at
+5245,1176, where the user's state2 on 2026-10-06 stood). Right of the
 ledge a wall drops to a hidden passage 16 pixels tall (y 1432-1447) that runs
 left through the wall, across a shaft 16 pixels wide (x 5240-5255) with no
 floor, to the alcove of a warp squid. Every part plays the same buttons with
@@ -35,7 +36,7 @@ Transformations on and off and reads her object.
   monkey's, the harpy's and the tinkerbat's routes give the same object, byte
   for byte.
 
-Requires the local saved states; never writes user saves or settings.
+Requires the saved states (python tools/make_states.py); never writes user saves or settings.
 """
 import argparse
 from pathlib import Path

@@ -198,9 +198,9 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
         snprintf(out->description, sizeof(out->description),
                  "Dance like entering a code. After Select, each press is a step: press them as fast "
                  "as you like, a wrong button is skipped and the next right one carries on, and Down "
-                 "starts over. The transformation, healing or warp begins on the last step. After an "
-                 "animal transformation, and after turning back, she blinks and cannot be hurt for "
-                 "two seconds, as after a hit. Off plays as the original.");
+                 "starts over. The transformation, healing or warp begins on the last step. Once an "
+                 "animal transformation's silhouette ends, and after turning back, she blinks and "
+                 "cannot be hurt for two seconds, as after a hit. Off plays as the original.");
         snprintf(out->group, sizeof(out->group), "Gameplay");
         if (shantae_easy_dance())
             snprintf(out->status, sizeof(out->status), "On: %s steps, %s after transforming",
@@ -222,7 +222,7 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
         snprintf(out->description, sizeof(out->description),
                  "Shantae keeps her momentum. Holding B runs at once, on the ground and in the "
                  "air: B with a direction whips while she runs (or just runs, with Cancel), a "
-                 "jump moves at running speed while B is held and walking speed when not, a "
+                 "jump moves at running speed while B is held, B whips the moment she lands, a "
                  "landing whip no longer stops her, and B crawls at walking speed. With "
                  "Transformations the monkey and tinkerbat move the same way, the harpy keeps "
                  "her speed and flaps through her talons, and the tinkerbat squeezes through "
@@ -667,11 +667,10 @@ static int dance_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->id, sizeof(out->id), OPTION_INVINCIBLE);
         snprintf(out->label, sizeof(out->label), "After transforming");
         snprintf(out->description, sizeof(out->description),
-                 "In the original she is safe only until the new form's entrance ends, or until she "
-                 "can move after turning back, with nothing to show it, and an enemy nearby can hit "
-                 "her at once. With Blink she flashes and cannot be hurt for two seconds from the "
-                 "moment she appears or can move again, the same as after a hit. Healing and warps "
-                 "are unchanged.");
+                 "In the original she is safe only until the new form's silhouette ends, or until "
+                 "she can move after turning back, with nothing to show it, and an enemy nearby can "
+                 "hit her at once. With Blink she then flashes and cannot be hurt for two more "
+                 "seconds, the same as after a hit. Healing and warps are unchanged.");
         snprintf(out->value, sizeof(out->value), "%s", invincibles[shantae_transform_invincible()][0]);
         snprintf(out->default_value, sizeof(out->default_value), "blink");
     } else {

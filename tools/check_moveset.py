@@ -1,9 +1,9 @@
 """Shantae's moves with "Smoother movement" (moveset.c), beside the original.
 
-The state (default logs/states/moveset.state, the user's state1 on 2026-10-02)
-stands in her base form at 393,1984 on the floor of a pit: flat from 346 to
-456, a wall at 338 on the left and at 463 on the right, and above the left
-wall a platform at 1960 whose edge is at 339.
+The state (default logs/states/moveset.state, made by tools/make_states.py
+from a debug game) stands in her base form at 393,1984 on the floor of a pit
+in the desert: flat from 346 to 456, a wall at 338 on the left and at 463 on
+the right, and above the left wall a platform at 1960 whose edge is at 339.
 
 Every part plays the same buttons in the original view with the feature off
 (the original moves) and on, a frame at a time, and reads her object: where
@@ -23,14 +23,18 @@ whip's hit (CBA2 set for the tick it lands, CBA5 its kind: 0 standing,
 - Air speed: two pixels a frame while B is held, one when it is released.
 - A whip begun in the air lands and carries on at two pixels a frame, and one
   begun on the platform slides off its edge and carries on in the air.
+- Landing (the user's report on 2026-10-10): after a standing jump the landing
+  routine 06:59E9 takes no B, so the original loses a press on the landing
+  frame and the 24 after it. With the feature each of them whips, the same
+  whip as from standing; with a direction, the slide whips and cancel runs.
 - Crawl: half a pixel a frame; with B one pixel, crouched throughout, through
   the crouch whip and after it. With the crawl option off, the original's.
-- Another form (--form-state, by default the tinkerbat of flip-puzzle.state,
+- Another form (--form-state, by default the tinkerbat of tinkerbat-gap.state,
   whose own run reads the same run flag): with Transformations off
   (smooth_forms=0; check_forms.py has them on), the feature on is the feature
   off.
 
-Requires the local saved state; never writes user saves or settings.
+Requires the saved state (python tools/make_states.py); never writes user saves or settings.
 """
 import argparse
 import os
@@ -42,7 +46,7 @@ import time
 from view_probe import Debug, ROOT
 from view_state_repro import step
 
-IDLE, WALK, RUN, JUMP = 0x4AA7, 0x502A, 0x6A8C, 0x5520
+IDLE, WALK, RUN, JUMP, LANDING = 0x4AA7, 0x502A, 0x6A8C, 0x5520, 0x59E9
 WHIP, AIR_WHIP, CROUCH, CRAWL, CROUCH_WHIP = 0x5E52, 0x6CCD, 0x6094, 0x648B, 0x670D
 WALKS, RUNS, CRAWLS = 256, 512, 128   # 256ths of a pixel a frame, to the right
 SLIDE, CANCEL = 1, 2
@@ -236,6 +240,55 @@ def check_landing(off, slide, cancel, state):
           "finishes at 2 pixels a frame and the run follows. Cancel: the run from the landing")
 
 
+def landing(g, state):
+    """The frame a standing jump lands on, the first of 24 in the landing routine."""
+    g.load(state)
+    f = g.play("A", 6) + g.play("-", 80)
+    land = next(i for i, x in enumerate(f) if x["routine"] == LANDING)
+    assert routines(f[land:]) == [LANDING, IDLE] and sum(x["routine"] == LANDING for x in f) == 24, \
+        (g.name, "the landing", [hex(r) for r in routines(f)])
+    return land
+
+
+def land_and_press(g, state, land, k, buttons):
+    """A standing jump, the buttons pressed for one frame k frames after it lands: the frames from the press."""
+    g.load(state)
+    g.play("A", 6)
+    g.play("-", land - 6 + k)
+    return g.play(buttons, 1) + g.play("-", 30)
+
+
+def check_land_whip(off, slide, cancel, nolag, state):
+    """B pressed as she lands from a standing jump (the user's report on 2026-10-10). The landing
+    routine runs on the landing frame's next 24 frames; the script puts her in the idle routine at
+    the end of the last, so a press is lost on 25 frames."""
+    land = landing(off, state)
+    for k in range(25):
+        f = land_and_press(off, state, land, k, "B")
+        assert WHIP not in routines(f) and AIR_WHIP not in routines(f) and hits(f) == [], \
+            ("the original whipped as she landed", k, [hex(r) for r in routines(f)])
+    for g in (off, slide, cancel, nolag):
+        assert landing(g, state) == land, g.name
+        # Back in the idle routine, B whips: the hit is on this frame of it.
+        ref = land_and_press(g, state, land, 25, "B")
+        assert routines(ref)[0] == WHIP and hits(ref) == [0], (g.name, "the whip from standing")
+        at = next(i for i, x in enumerate(ref) if x["hit"])
+        if g is off:
+            continue
+        for k in range(25):
+            f = land_and_press(g, state, land, k, "B")
+            assert f[0]["routine"] == WHIP and hits(f) == [0] and f[at]["hit"] and steps(f, f[0]["x"])[1:] == [0] * 30, \
+                (g.name, "B as she lands", k, [hex(r) for r in routines(f)], hits(f))
+    # A direction pressed with B in the landing: the slide moves, cancel runs.
+    f = land_and_press(slide, state, land, 5, "BR")
+    assert f[0]["routine"] == WHIP and hits(f) == [0], ("slide: B and Right as she lands", routines(f))
+    f = land_and_press(cancel, state, land, 5, "BR")
+    assert WHIP not in routines(f) and hits(f) == [], ("cancel: B and Right as she lands", routines(f))
+    print(f"PASS: B pressed on the frame a standing jump lands and on each of the 24 after it. Original: no whip "
+          f"(the landing routine 06:59E9 takes no B). With the feature: the whip from that frame, its hit {at} frames "
+          "on as from standing, with and without Reduce input lag; with a direction, the slide whips and cancel runs")
+
+
 def check_ledge(slide, state):
     slide.load(state)
     slide.play("L", 60)    # to the wall under the platform
@@ -326,7 +379,7 @@ def check_form(off, slide, state):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("state", type=Path, nargs="?", default=ROOT / "logs/states/moveset.state")
-    ap.add_argument("--form-state", type=Path, default=ROOT / "logs/states/flip-puzzle.state",
+    ap.add_argument("--form-state", type=Path, default=ROOT / "logs/states/tinkerbat-gap.state",
                     help="a state in another form, which the feature must leave alone")
     ap.add_argument("--exe", type=Path, default=ROOT / "generated/build/shantae.exe")
     ap.add_argument("--original", type=Path, help="an exe from before the feature, to compare the feature off with")
@@ -348,6 +401,7 @@ def main():
             check_run(off, slide, cancel, nolag, args.state)
             check_air(off, slide, args.state)
             check_landing(off, slide, cancel, args.state)
+            check_land_whip(off, slide, cancel, nolag, args.state)
             check_ledge(slide, args.state)
             check_crawl(off, slide, cancel, plain, args.state)
             if args.form_state.exists():

@@ -13,8 +13,7 @@ void shantae_set_transform_invincible(int on);
 
 /* An [[imm_override]] site in bank 0E. Returns 1 with the operand to use. */
 int shantae_dance_imm(struct GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value);
-/* Step hook: where a site above stopped, go on to the blinker. */
-void shantae_dance_step(struct GBContext *ctx);
-/* game_dispatch_override: the turn back's last call to 06:72D2 goes to the
+/* game_dispatch_override: the call to 06:72D2 that ends a transformation's
+ * protection as its silhouette ends, and the turn back's last, go to the
  * blinker. Returns 1 when it set ctx->pc. */
 int shantae_dance_dispatch(struct GBContext *ctx, uint16_t addr);

@@ -1,8 +1,9 @@
 """The dance with "Easier dancing" (dance.c), beside the original.
 
-The state (default logs/states/dance.state, the user's state1 on 2026-10-06)
-stands in Shantae's base form at 400,1984 in a desert pit, with every dance
-learned. A slider (an object of bank 15) waits at 737,1960 to the right.
+The state (default logs/states/dance.state, made by tools/make_states.py from a
+debug game, which has every dance learned) stands in Shantae's base form at
+400,1984 in a desert pit. A slider (an object of bank 15) waits at 737,1960 to
+the right.
 
 - Quick steps: after Select every new press is a step, matched against the
   ROM's own table (0E:4342) at once. Every dance of the table matches on the
@@ -15,9 +16,13 @@ learned. A slider (an object of bank 15) waits at 737,1960 to the right.
   nothing.
 - After a transformation: landed at 660 with the debug flight and the monkey
   danced, the slider runs into her while she is in her entrance. The original
-  is hit as soon as its protection ends (CB56 back to 0, about 70 frames after
-  she appears); with the option she blinks (the blinker 06:72DA) and is not
-  hurt until it ends.
+  is protected until her silhouette ends (the background's palettes back to
+  their colours, about 70 frames after she appears; CB56 back to 0) and is hit
+  soon after; with the option (the user's report on 2026-10-10) nothing blinks
+  during the silhouette, she blinks (the blinker 06:72DA) from the frame it
+  ends, is safe throughout, and is not hurt until the blink ends.
+- Every transformation of the table the same way, in place, and the heal
+  dance with no blink.
 - Turning back (the user's report on 2026-10-07): the monkey flown beside the
   slider and Select. The turn back (script 0E:4000) protects her until she
   can move; then the original has nothing and the slider hits her. With the
@@ -26,7 +31,7 @@ learned. A slider (an object of bank 15) waits at 737,1960 to the right.
   on and both options at the original, the player's object and the dance's
   RAM are the same every frame of a route of dances in and out of rhythm.
 
-Requires the local saved state; never writes user saves or settings.
+Requires the saved state (python tools/make_states.py); never writes user saves or settings.
 """
 import argparse
 from pathlib import Path
@@ -144,7 +149,8 @@ def check_rhythm(g, state):
 
 
 def iframes(g, state):
-    """Land beside the slider, dance the monkey; per frame: health, CB56, a blinker, the form."""
+    """Land beside the slider, dance the monkey; per frame: health, CB56, a blinker, the form and the
+    background's palettes (the hardware's palette RAM)."""
     g.load(state)
     g.c.command("shantae_flight")
     step(g.c, 2)
@@ -155,38 +161,82 @@ def iframes(g, state):
     g.c.command("set_input", buttons="-")
     step(g.c, 2)
     out = []
-    for b in ["T", "-", "-", "D", "-", "R"] + ["-"] * 200:
+    for b in ["T", "-", "-", "D", "-", "R"] + ["-"] * 280:
         g.c.command("set_input", buttons=b)
         step(g.c, 1)
         # The blinker (06:72DA) hides her sprite with slot+$32 = $80 for four
         # frames in eight; it may take any slot of the grown table.
         out.append(dict(hp=g.mem(0xCA80, 1)[0], safe=g.mem(0xCB56, 1)[0], hidden=g.slot()[0x32] == 0x80,
-                        form=g.mem(0xCB72, 1)[0]))
+                        form=g.mem(0xCB72, 1)[0], palette=g.c.command("hw_state")["bg_palette"]))
     return out
 
 
+def silhouette(f, appears):
+    """The frames of the silhouette: from the first with a white background after she appears (BGR555
+    $7FFF) to the last before the background has its colours from before the dance again."""
+    white = next(i for i, x in enumerate(f) if i > appears and x["palette"].startswith("FF7F"))
+    back = next(i for i, x in enumerate(f) if i > white and x["palette"] == f[0]["palette"])
+    return white, back
+
+
 def check_iframes(off, on, state):
+    """The blink after transforming starts when the silhouette ends (the user's report on 2026-10-10)."""
     f = iframes(off, state)
     appears = next(i for i, x in enumerate(f) if x["form"] == 1)
+    white, back = silhouette(f, appears)
     hit = next((i for i, x in enumerate(f) if x["hp"] < f[0]["hp"]), None)
     unsafe = next(i for i, x in enumerate(f) if i > appears and not x["safe"])
+    # The original's protection comes off (0E:4F7D) in the tick the colours come back, shown a frame later.
+    assert unsafe == back - 1, ("the original's protection did not end with the silhouette", white, back, unsafe)
     assert hit is not None and unsafe <= hit < unsafe + 30 and not any(x["hidden"] for x in f[:hit]), \
         ("the original was not hit when its protection ended", appears, unsafe, hit)
     f = iframes(on, state)
+    assert silhouette(f, appears) == (white, back), ("the silhouette", silhouette(f, appears), (white, back))
+    match = next(i for i, x in enumerate(f) if x["safe"])
     hidden = [i for i, x in enumerate(f) if x["hidden"]]
     safe_until = next(i for i, x in enumerate(f) if i > appears and not x["safe"])
-    # 15 blinks of 4 frames hidden and 4 shown, from the frame she appears.
-    assert hidden and hidden[0] - appears <= 1 and len(hidden) == 60 and hidden[-1] < safe_until, \
-        (appears, hidden[:3], len(hidden), safe_until)
-    assert 118 <= safe_until - appears <= 122, (appears, safe_until)
-    assert all(x["hp"] == f[0]["hp"] for x in f[:safe_until]), "hurt while blinking"
-    print(f"PASS: the slider reaches the new monkey. Original: protected until frame {unsafe - appears} after she "
-          f"appears, hit {hit - unsafe} frames later. With the option: she blinks and cannot be hurt for "
-          f"{safe_until - appears} frames from the frame she appears, and is not hurt")
+    # Nothing during the silhouette; then 15 blinks of 4 frames hidden and 4 shown.
+    assert hidden and unsafe <= hidden[0] <= back and len(hidden) == 60 and hidden[-1] < safe_until, \
+        (white, back, hidden[:3], len(hidden), safe_until)
+    assert all(x["safe"] for x in f[match:safe_until]) and 118 <= safe_until - unsafe <= 122, \
+        (match, unsafe, safe_until)
+    assert all(x["hp"] == f[0]["hp"] for x in f[:safe_until]), "hurt while protected"
+    print(f"PASS: the slider reaches the new monkey. The silhouette lasts from frame {white - appears} to "
+          f"{back - appears} after she appears. Original: protected until it ends, hit {hit - unsafe} frames later. "
+          f"With the option: no blink during it; she blinks from frame {hidden[0] - appears} and cannot be hurt for "
+          f"{safe_until - unsafe} frames from its end, safe throughout from the match, and is not hurt")
+
+
+def check_every_form(on, state):
+    """Each dance of the table that sets a form, and the heal: in place, with the option."""
+    forms = [e for e in dances() if e[4] != 0xFF]
+    heal = next(e for e in dances() if e[0] == [1, 6, 7])
+    for steps_, *_, form in forms + [heal]:
+        on.load(state)
+        f = []
+        for b in ["T", "-", "-"] + sum([[LETTER[s], "-"] for s in steps_], []) + ["-"] * 280:
+            on.c.command("set_input", buttons=b)
+            step(on.c, 1)
+            f.append(dict(safe=on.mem(0xCB56, 1)[0], hidden=on.slot()[0x32] == 0x80, form=on.mem(0xCB72, 1)[0],
+                          palette=on.c.command("hw_state")["bg_palette"]))
+        match = next(i for i, x in enumerate(f) if x["safe"])
+        white = next(i for i, x in enumerate(f) if x["palette"].startswith("FF7F"))
+        back = next(i for i, x in enumerate(f) if i > white and x["palette"] == f[0]["palette"])
+        unsafe = next(i for i, x in enumerate(f) if i > match and not x["safe"])
+        hidden = [i for i, x in enumerate(f) if x["hidden"]]
+        if form == 0xFF:
+            assert f[-1]["form"] == 0 and not hidden and unsafe < back, ("the heal", match, unsafe, back, hidden[:3])
+            continue
+        assert f[-1]["form"] == form and hidden and hidden[0] == back and len(hidden) == 60, \
+            (form, white, back, hidden[:3], len(hidden))
+        assert 118 <= unsafe - back <= 122, (form, back, unsafe)
+    print(f"PASS: all {len(forms)} transformations: safe from the match until 120 frames after the silhouette ends, "
+          "blinking from the frame its colours come back. The heal: no blink, as in the original")
 
 
 def turn_back(g, state):
-    """The monkey danced in the pit, flown beside the slider, then Select: she turns back into Shantae."""
+    """The monkey danced in the pit, flown to x 624, then Select: she turns back into Shantae while the
+    slider comes from 737, and it reaches her as she can move."""
     g.load(state)
     for b in ["T", "-", "-", "D", "-", "R"] + ["-"] * 200:
         g.c.command("set_input", buttons=b)
@@ -195,7 +245,7 @@ def turn_back(g, state):
     g.c.command("shantae_flight")
     step(g.c, 2)
     g.c.command("set_input", buttons="R")
-    step(g.c, 65)
+    step(g.c, 56)
     for b in ["T", "-", "-"]:   # the first Select ends the flight
         g.c.command("set_input", buttons=b)
         step(g.c, 1)
@@ -279,6 +329,7 @@ def main():
             check_generous(quick, args.state)
             check_rhythm(rhythm, args.state)
             check_iframes(plain, quick, args.state)
+            check_every_form(quick, args.state)
             check_turn_back(plain, quick, args.state)
             if args.original:
                 # v0.1.11 and later have the feature, on by default.

@@ -326,6 +326,41 @@ bank = 6
 addr = 0x6DC6
 note = "LD A,$66: its high byte"
 
+# A standing landing: the jump routine (06:5683) sets the landing script
+# 06:59C2 over the air whip a new B set in the same tick, and that script plays
+# 24 ticks of the landing routine 06:59E9, which tests a new A (LDH A,($8C) /
+# AND 1 / CP 1 / JP Z to the jump script 06:5364) but never B. With the hooks a
+# new B is the whip script 06:5D61 in both, as in the idle routine.
+[[imm_override]]
+bank = 6
+addr = 0x56BB
+note = "LD A,$C2: low byte of the script a standing landing sets (06:59C2), or the whip's (06:5D61)"
+
+[[imm_override]]
+bank = 6
+addr = 0x56BE
+note = "LD A,$59: its high byte"
+
+[[imm_override]]
+bank = 6
+addr = 0x5A0D
+note = "AND $01 on FF8C in the landing routine 06:59E9: A pressed (or B, for the whip)"
+
+[[imm_override]]
+bank = 6
+addr = 0x5A0F
+note = "CP $01: the jump's branch (or the whip's)"
+
+[[imm_override]]
+bank = 6
+addr = 0x5A86
+note = "LD A,$64: low byte of the script the landing's A starts (06:5364), or the whip's (06:5D61)"
+
+[[imm_override]]
+bank = 6
+addr = 0x5A89
+note = "LD A,$53: its high byte"
+
 # "Smoother movement" for the transformations (forms.c). The monkey's claw
 # (0D:4FC8) and the tinkerbat's sword (1C:57AC) zero her speed like the whip.
 [[imm_override]]
@@ -444,14 +479,6 @@ note = "AND $04 on FF8C in the dance routine 0E:4D40: this tick's presses as ste
 bank = 0x0E
 addr = 0x4D54
 note = "CP $00 on slot+$18 in 0E:4D40: the beat's window is open -> never, with quick steps"
-
-# "Dancing": invincibility after a transformation. 0E:4EC8 sets the new form
-# as the transformation's object starts; with the option it goes on to the
-# blinker that follows a hit (06:7265), with one more on CB56 for it to take off.
-[[imm_override]]
-bank = 0x0E
-addr = 0x4ECB
-note = "CP $FF on CB81 in 0E:4EC8: a form is set -> stop, and the step hook goes on to 06:7265 (hook only)"
 
 # Inline-argument routines: CALL routine ; <args> -- they read their arguments
 # through the return address and resume past them. Lengths from

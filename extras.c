@@ -51,7 +51,7 @@
  * "Smoother movement" (default on) is in moveset.c, and for the
  * transformations in forms.c; "Easier dancing" (default on) is in dance.c.
  * Their settings are kept here and their hooks are called from
- * shantae_imm_override (dance.c's also from the step hook).
+ * shantae_imm_override (dance.c's also from ram_native.c's dispatch override).
  */
 #include "game_extras.h"
 #include "gbrt.h"
@@ -543,7 +543,6 @@ static void run_player_move(GBContext *ctx) {
 }
 
 static void step_hook(GBContext *ctx) {
-    shantae_dance_step(ctx);
     run_player_move(ctx);
 }
 

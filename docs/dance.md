@@ -1,11 +1,10 @@
 # Easier dancing
 
 "Easier dancing" (`dance.c`, on by default; Mods page and Esc → Shantae) changes two things
-about Shantae's dances: the steps are entered like a code, at any speed, and after an animal
-transformation, and after turning back into herself, she blinks and cannot be hurt for two
-seconds, as after a hit. Each has an
-option; with both at *Original*, or the feature off, the dance plays as the original, frame
-for frame.
+about Shantae's dances: the steps are entered like a code, at any speed, and once an animal
+transformation's silhouette ends, and after turning back into herself, she blinks and cannot
+be hurt for two seconds, as after a hit. Each has an option; with both at *Original*, or the
+feature off, the dance plays as the original, frame for frame.
 
 Addresses are `bank:address` in the USA ROM (CRC32 `E994B59B`). The routines were read in
 Ghidra 12 with GhidraBoy (`tools/ghidra_listing.py`) and confirmed by tracing the game
@@ -86,18 +85,28 @@ blinker (06:7265, script 06:72DA): every 4 ticks it sets her slot+$32 to $80 (hi
 blinking.
 
 A transformation adds one at the match (0E:4207) and spawns an object (0E:4458, script
-0E:4E82) that sets the new form (0E:4EC8), waits while she is transformed and her entrance
-plays, and takes the one off when the entrance ends: about 70 ticks after she appears, 50
-after she can move, with nothing to show it. A slider that reaches her a moment later hits
-her at once.
+0E:4E82, decoded by its opcodes) that sets the new form (0E:4EC8) and shows her as a
+silhouette: a few ticks after she appears the background's palettes turn white and the
+sprites' black, she can move about 20 ticks after she appears, and from about 40 the
+colours fade back. On the tick they are back, the object takes the one off with op 32's
+call to 06:72D2 at 0E:4F7D and ends:
+about 70 ticks after she appears, 50 after she can move, with nothing to show it. A slider
+that reaches her a moment later hits her at once. The heal dance (CB81 $FF) runs the same
+object, with no form to set.
 
-With the option, when 0E:4EC8 sets a form (CB81 is not $FF: the heal dance's puff passes
-$FF), it adds one more to CB56 and spawns the same blinker, so she flashes and cannot be hurt
-for 120 ticks from the moment she appears. 0E:4EC8 was called by the script VM's native call
-(op 32, 00:1A46), which restores the ROM bank when it returns, so the routine's `RET` becomes
-a jump to 06:7265 and the blinker returns to the VM in its place: the `CP $FF` at 0E:4ECB
-stops there, and the runtime's step hook (`shantae_dance_step`) does the routine's last
-store (`LD (CB72),A`) and the jump.
+With the option that call goes to the blinker spawner 06:7265 instead, as after turning back
+(below): the blinker takes over the one she still has, so she is safe without a break from
+the match, through the silhouette, and for 120 ticks after it, blinking from the tick the
+colours come back. The dispatch hook tells this call by op 32's stack (the script's DE at
+0E:4F81, the object's slot in BC, bank 0E) and only while she has a form (CB72 not 0), so the
+heal blinks no more than in the original. The blinker (script 06:72DA) flashes the player's
+slot through CA13, whichever object spawns it.
+
+v0.1.11 and v0.1.12 spawned the blinker when 0E:4EC8 set the form (stopping at its `CP $FF`,
+0E:4ECB), so she blinked from the moment she appeared, through the silhouette, and her two
+seconds were over about 50 ticks after the colours came back (the user's report on
+2026-10-10: the blink should begin once the silhouette ends, as fair as after turning back).
+That hook is gone.
 
 ### Turning back
 
@@ -129,24 +138,30 @@ called from `extras.c`.
 | 0E:4260 | `LD A,$01` (the ring's fill) | clear the steps so far |
 | 0E:4D48 | `AND $04` on FF8C | this tick's presses as steps, and their pose |
 | 0E:4D54 | `CP $00` on slot+$18 | the window stays shut |
-| 0E:4ECB | `CP $FF` on CB81 | a form is set: stop, then the blinker (step hook) |
 
-And one dispatch hook: 06:72D2 reached from op 32 at 0E:407B (the turn back's last call) goes
-to 06:7265, the blinker (`shantae_dance_dispatch`, from `game_dispatch_override`).
+And one dispatch hook: 06:72D2 reached from op 32 at 0E:4F7D (the transformation's object, as
+its silhouette ends) or at 0E:407B (the turn back's last call) goes to 06:7265, the blinker
+(`shantae_dance_dispatch`, from `game_dispatch_override`).
 
 ## Checks
 
-`python tools/check_dance.py` plays `logs/states/dance.state` (the user's state1 on
-2026-10-06: Shantae in a desert pit with every dance learned):
+`python tools/check_dance.py` plays `logs/states/dance.state` (Shantae in a desert pit, from a
+debug game, so with every dance learned; `python tools/make_states.py` makes it, see
+[moveset.md](moveset.md#checks)):
 
 - Every dance of the table matches on the frame of its last step, the presses a frame apart,
   with the table's script and form.
 - Skipped presses (before Down; Right after ↓ ↑ ← ←; toward a dance not learned), Down
   starting over, Down and Right in one frame, and four steps on four frames.
 - With the original rhythm, the same fast presses match nothing.
-- Landed beside a slider with the debug flight and turned into the monkey: the original is
-  hit six frames after its protection ends; with the option she blinks and is not hurt for
-  the 120 frames from her appearance.
+- Landed beside a slider with the debug flight and turned into the monkey: the silhouette
+  (from the background's palettes) runs from frame 7 to 70 after she appears; the original
+  is protected until it ends and hit six frames later; with the option nothing blinks
+  during it, she blinks from frame 70, is safe without a break from the match until 120
+  frames after it, and is not hurt. v0.1.12 fails this (it blinks from her appearance).
+- Every transformation of the table (monkey, elephant, harpy, spider, tinkerbat) in place:
+  safe from the match, blinking from the frame the colours come back, for 120 frames; the
+  heal dance: no blink.
 - The monkey flown beside the slider, then Select: she is safe while she turns back in both;
   the original is hit a frame after she can move, with the option she blinks from that frame
   and is not hurt for 120 frames. v0.1.11 fails this (its protection ends a frame after she
