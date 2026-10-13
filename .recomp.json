@@ -1,0 +1,20 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Shantae",
+  "system": "GBC",
+  "type": "recomp",
+  "original": {
+    "region": "USA",
+    "sha1": "520e48c50f6e997fcd841ca368fc9abc1dbddec1"
+  },
+  "project": "Shantae Recomp",
+  "status": "playable",
+  "targets": ["Windows", "Linux"],
+  "toolchain": "gbrecompiled",
+  "approach": "Static recompilation of the whole ROM to native C, with an OpenGL frontend and RetroArch shader presets through librashader",
+  "maintainers": [{ "name": "vibecodekun", "link": "https://github.com/vibecodekun" }],
+  "links": [
+    { "label": "Download", "url": "https://github.com/vibecodekun/shantaerecomp/releases/latest" }
+  ],
+  "notes": "Playable from start to finish. GBA Enhanced extras on, an expanded world view at any aspect ratio, no slowdown, reduced input lag, smoother movement, rewind and save states. Windows x64, x86 and ARM64; Linux x86_64 and aarch64 as a tarball or AppImage. Built from your own Shantae (USA) ROM, the No-Intro dump; the repository contains no game code or data."
+}
