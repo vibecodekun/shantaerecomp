@@ -554,8 +554,10 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     /* "Smoother movement": the player's routines, and the run flag each pass. */
     uint8_t value;
     if (bank == 6 && shantae_moves_imm(ctx, pc, orig, &value)) return value;
-    /* The transformations' routines: the monkey and harpy, the tinkerbat. */
-    if ((bank == 0x0D || bank == 0x1C) && shantae_forms_imm(ctx, bank, pc, orig, &value)) return value;
+    /* The transformations' routines: the monkey and harpy, the spider, the tinkerbat. */
+    if ((bank == 0x0D || bank == 0x13 || bank == 0x1C) && shantae_forms_imm(ctx, bank, pc, orig, &value)) return value;
+    /* The expanded view: the spider's shot. */
+    if (bank == 0x1A && shantae_view_imm(ctx, bank, pc, orig, &value)) return value;
     /* "Dancing": the dance routine and its script's native calls. */
     if (bank == 0x0E && shantae_dance_imm(ctx, pc, orig, &value)) return value;
     if (bank == 0 && orig == 0x03 && (pc == MOVES_PROLOGUE_PC || pc == SCRIPTS_PROLOGUE_PC)) shantae_moves_tick(ctx);

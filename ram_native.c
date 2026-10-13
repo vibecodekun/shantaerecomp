@@ -5,6 +5,7 @@
 #include "gbrt.h"
 #include "dance.h"
 #include "expanded_view.h"
+#include "forms.h"
 #include "object_slots.h"
 
 /* An object's movement or draw JP (slot+$1A, slot+$29). The table can run on
@@ -50,6 +51,8 @@ int game_dispatch_override(GBContext* ctx, uint16_t addr) {
     /* The spawner filling an area the expanded view has just revealed. */
     if (shantae_view_dispatch(ctx, addr)) return 1;
     if (addr < 0xA000) return 0;
+    /* "Smoother movement": the spider's shot moves her. */
+    if (shantae_forms_dispatch(ctx, addr)) return 1;
     if (jump_slot(ctx, addr)) {
         if (gb_read8(ctx, addr) != 0xC3) return 0;
         /* JP nn: only its destination is patched by the game. */

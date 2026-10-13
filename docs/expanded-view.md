@@ -765,6 +765,21 @@ safely and does not disable the expanded view.
   has the door go back to 15:585E on its next script pass (+16 = $0080), so
   its call to 15:591F makes the crow again (`crows` in `shantae_view_info`).
 
+- The spider's shot (script 1A:7889, routine 1A:78DD, made by 1A:7972 from
+  her shot script 13:4C77 and from B on a web; at most three, in CD20, CD2B
+  and CD36) lives 30 ticks, its +$61 counted down by the `SUB $01` at
+  1A:78E2, and is freed when that reaches 0 (1A:78C2). At 3 pixels a tick
+  that is about as far as the original's screen reaches ahead of her, its
+  camera leading her, so in a wider picture the shot vanished in mid-air (the
+  user's report on 2026-10-13). While the room is widened and the shot's box
+  meets the presented picture (the room's part of it, above the status bar),
+  that `SUB` takes 0 on its last tick, so it waits; the tick after it leaves
+  the picture it is freed (`shots_kept` in `shantae_view_info` counts the
+  waits). In the desert pit at 426×240 it flies 49 frames to the room's left
+  edge, in the original view 29; the wider view also wakes the sand worm to
+  the right, which it hits. It still passes through walls, as it always
+  has, and a shot held in the picture keeps its slot of the three for longer.
+
 - Scene gate: menus reuse the map engine state. The inventory keeps C9F8–C9FA
   and the room bounds, zeroes both cameras, and replaces the tilemap and tile
   data. The view expands only while at least half of the fully visible native

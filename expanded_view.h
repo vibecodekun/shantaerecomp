@@ -13,6 +13,9 @@ void shantae_input_lag_counts(unsigned long long *fresh, unsigned long long *ori
 /* Addresses the dispatcher offers (ram_native.c): 00:1143, where the object
  * spawner fills an area the view has just revealed. 1 when it redirected. */
 int shantae_view_dispatch(struct GBContext *ctx, uint16_t addr);
+/* An [[imm_override]] site the view answers (extras.c): the spider's shot
+ * lives while it is in the picture. Returns 1 with the operand to use. */
+int shantae_view_imm(struct GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig, uint8_t *value);
 /* Whether the room in guest RAM is a town, which keeps the original picture,
  * activation and object table (expanded_background.inc). */
 int shantae_view_town(const struct GBContext *ctx);

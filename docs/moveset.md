@@ -6,9 +6,11 @@ and Select dances the moment she lands, her air speed follows B, and she can cra
 walking speed. It is a
 set of hooks in her own
 movement routines in bank 6. Its *Transformations* option (`forms.c`, below) does the same
-for the monkey and the tinkerbat, keeps the harpy's speed through her talons, and lets the
-tinkerbat squeeze through gaps the monkey fits. Off, none of them does anything and the game
-plays as the original, frame for frame.
+for the monkey and the tinkerbat, gives the spider a run and every climb a faster one with B,
+keeps the harpy's speed and her flaps through her talons, lets a charge be pressed again,
+turned, jumped out of and started from the elephant's turn, landing and stomp, gives the
+tinkerbat the monkey's box, and makes a web something A takes hold of and jumps off. Off, none
+of them does anything and the game plays as the original, frame for frame.
 
 Addresses are `bank:address` in the USA ROM (CRC32 `E994B59B`). The routines were read in
 Ghidra 12 with GhidraBoy (`tools/build_ghidraboy.py`) and confirmed by tracing the game
@@ -152,8 +154,8 @@ save states, rewind and Preemptive Frames need nothing extra.
 
 `smooth_forms` in `shantae.ini` (1, default; 0 leaves the forms as the original). It follows
 the feature's other options: *Whip on the move* for the monkey's claw and the tinkerbat's
-sword, *Air speed* for their jumps. `CB72` is the form: 1 monkey, 2 elephant, 3 harpy, 4
-spider, 5 tinkerbat; the elephant and the spider are left as they are.
+sword and the spider's shot, *Air speed* for their jumps. `CB72` is the form: 1 monkey,
+2 elephant, 3 harpy, 4 spider, 5 tinkerbat.
 
 **The monkey (bank 0D) and the tinkerbat (bank 1C)** are built like Shantae:
 
@@ -192,7 +194,13 @@ option:
   the routine "start moving" hands on to in the same tick. *Cancel*: a new B with a direction
   held is not seen, so she runs at once, and an attack in progress goes on to "start moving"
   when B and a direction are held.
-- *Air speed*: the `CP 0` compares with a value that is "not zero" while B is held.
+- *Air speed*: the `CP 0` compares with a value that is "not zero" while B is held. The
+  monkey's air claw (0D:4ED7) only turns her (0D:4F85, 0D:4F8D) and keeps the speed of the
+  jump's last tick, which is walk speed after B is let go to press it; with the option a
+  direction gives it the jump's speed, run speed with B held, as the tinkerbat's air sword has.
+- Climbing (0D:4ABE, 1C:5080) is a pixel a tick (the speeds at 0D:4B6F, 0D:4B8B; 1C:5131,
+  1C:514D); with B held it is two, and the climb's animation counter (+$66, `ADD`/`SUB $40`)
+  moves twice as far.
 
 **The harpy (bank 0D)** has no run flag. Her run (0D:6F38) adds $10 a tick against $08 of
 drag, up to two pixels a tick; her talons (0D:751F, script 0D:74E5) keep her speed, but end
@@ -217,24 +225,58 @@ hit (04:5641) go on untouched, and the talon ends as it does in the air (its scr
 `CB54` at 0D:7515). From her run on the ground an A lifts her off the same way; the original
 lands her from flight in the run with `CB54` still 1, as here.
 
-**The tinkerbat squeezes.** Her box (00:2975 loads it with each frame of animation, at
-+$47–+$4E) is 10 by 20 pixels; the monkey's is 7 by 14, with the same feet. The wall and floor
-tests (00:29F6, the climb's wall test 1C:4F51) take the box's whole height, so a passage the
-monkey climbs or walks into is a wall to her: 16 pixels tall, as in the ice tower behind the
-ledge of the user's state2, where a hidden passage runs from the wall at x 5288 through to a
-warp squid's alcove, crossed by a shaft 16 pixels wide. With the option, before each tick's
-movement her box is the monkey's height, feet kept, when that box is clear of solid tiles and
-either her frame's own box is not (she is inside such a gap) or she is pressing into a wall
-that is solid for her own box and open for the smaller one. The tiles are read as 00:2CCF and
-00:3297 read them: a row of the table at 00:0300, the block from the directory at C9F9 (bank
-C9FA), its metatile, and the quarter's byte at +8–+B of the metatile's record in bank FFDF
-plus its low nibble; 02 and 62 are solid. The box is rewritten only when it is her frame's or
-the squeezed one, and the next frame's load restores it.
+**The tinkerbat has the monkey's box.** Hers (00:2975 loads it with each frame of animation,
+at +$47–+$4E) is 10 by 20 pixels; the monkey's is 7 by 14, with the same feet and middle. The
+wall and floor tests (00:29F6, the climb's wall test 1C:4F51) take the whole box, so the
+16-pixel pipes and passages the monkey climbs through were walls to her: the ice tower's
+hidden passage behind the ledge of the user's state2 (from the wall at x 5288 through to a
+warp squid's alcove, crossed by a shaft 16 pixels wide), and the pipe maze above the beach of
+the user's state1 of 2026-10-10. With the option, before each tick's movement her frame's box
+is the monkey's, feet and middle kept. The box is rewritten only when it is her frame's or
+the monkey's, and her object's other box (+$4F–+$56) is unchanged. v0.1.12 to v0.1.14 made
+the box smaller only near such a gap, read from the map, which missed the pipes.
 
-So climbing down that wall with B, Down and Left she lets go where the passage opens and runs
-through it; in the shaft, climbing its far wall with Up (or with A presses) and Left, she steps
-into the passage's far side and reaches the alcove. With the monkey's box she fits only where
-the monkey fits, and her object's other box (+$4F–+$56) is unchanged.
+**The charges.** The elephant charges with B (script 0D:64A5, routine 0D:650E) and the
+tinkerbat with Down and B (1C:646D, 1C:64CA). The charge routines read no buttons, so a
+charge ran until its speed was gone. With the option a new B (Down and B) during one charges
+again, at full speed, and a new A jumps (0D:60B6, 1C:51F9), as from standing. The tinkerbat's
+charge started only from standing (1C:4C82): her walk, run and landing take B as the sword.
+Down and B charge from those too, so she can charge while pressing into what she breaks (the
+orange pillar at the beach, 16:5966: a charge hits what it touches when it starts, since
+00:39A3 needs the object's +$1F, set when she pushes into it; two hits, then 160 frames of
+crumbling). A charge goes the way she faces (the scripts' native calls 0D:64E9 and 1C:64A5
+read +$31), and the idle and walk routines take B after a direction, so B with the other way
+held charged the way she faced; with the option a charge starting on a tick, from a charge
+too, faces the way held (the user's report on 2026-10-13).
+
+**The elephant's turn, landing and stomp** (the same report). Her turn (script 0D:5EF7,
+routine 0D:5F1E: two frames of five ticks, then 0D:5F15 faces her about), her landing
+(0D:61D8, 30 ticks) and her stomp (0D:62A6, a landing with Down held once it is learned:
+the hit through 04:5641, then four frames of ten ticks in 0D:62D8) take no B, and the turn
+and the stomp no buttons at all, so a B during the turn was lost and the stomp held her for
+40 ticks. With the option, at the start of the script pass (as for the charges): B charges
+and A jumps from the turn, facing the way it turns her; B charges from the landing; and from
+the tick after the stomp's hit B charges, A jumps and a direction hands on to the idle
+script, whose routine walks or turns her. With nothing pressed the stomp plays out.
+
+**The spider (bank 13)** walks a pixel a tick (13:4C2E, 13:4C43) and has no run. With the
+option B held is two, with the walk's animation at twice the rate, and with *Air speed* the
+same in her jump (13:5280, 13:5295). A new B starts her shot (script 13:4C77), whose routine
+13:4CA0 is a `RET`: she stands for its six ticks. With *Whip on the move* not *Original*, a
+direction held during it moves her with the walk's mover (13:4BE5) through the dispatcher at
+her movement `JP` (`ram_native.c`), at run speed with B held, so B runs and shoots at once.
+
+**Webs.** On a web (tiles $64, routine 13:6068) the spider moves a pixel a tick each way,
+undone when the tile there is solid; with B held each step and its undo are two, and her
+animation (+$75) twice. The tinkerbat climbs webs with a copy of it (1C:6113, with no shot),
+the same with B held. Their jump and fall (13:5105, 1C:5375) take hold of a web whenever the
+tile by her feet is one (the tests 13:476B and 1C:5D41 end in `CP $64`), and the tinkerbat's
+jump script checks before she has left the ground (1C:5282, through 1C:529B, then the grab
+script 1C:5F6F), so a jump in front of a web stuck to it; on a web A did nothing. With the
+option the test finds a web in the air only on a new A (its return address tells the jump's
+test from the climb's), never as the jump starts, and a new A on a web jumps off it with the
+script for climbing off its top (13:5063, 1C:51B7): A jumps, A again takes hold, and A on the
+web jumps off.
 
 ## Hook sites
 
@@ -256,17 +298,26 @@ All are `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_moves_i
 | 06:5A0D, 5A0F | `AND $01`, `CP $01` | the landing routine: a new B or Select takes the jump's branch |
 | 06:5A86, 5A89, 5A8C | `LD A,$64/$53/$06` | that branch's script is the whip's or the dance's |
 
-The transformations' sites; the hook is `shantae_forms_imm` in `forms.c`, the run flag
-and the squeeze are `shantae_forms_tick`, called with Shantae's, and the harpy's flap during
-her talon is `shantae_forms_script_pass`, called at the existing 00:130B site.
+The transformations' sites; the hook is `shantae_forms_imm` in `forms.c`, the run flag and
+the tinkerbat's box are `shantae_forms_tick`, called with Shantae's, the presses at the start
+of the script pass (the harpy's flaps, the charges, the elephant's turn, landing and stomp, A
+on a web) are `shantae_forms_script_pass`, called at the existing 00:130B site, and the
+spider's shot on the move is `shantae_forms_dispatch`, called by the dispatcher at an object's
+movement `JP` (`ram_native.c`).
 
 | Site | Instruction | Hook |
 |------|-------------|------|
 | 0D:4FCC, 4FCF, 4FD2 | `LD A,$00` | the claw's speed |
 | 1C:57B0, 57B3, 57B6 | `LD A,$00` | the sword's speed |
 | 0D:4E48, 4E74; 1C:5518, 5544, 5724, 5750 | `CP $00` | air speed from B |
+| 0D:4F89, 4F91 | `LD A,$01/$00` to +$31 | the air claw turns her: and the jump's speed |
+| 0D:4B73…4B9D; 1C:5135…515F | `LD A` speed bytes, `ADD`/`SUB $40` | climbing with B held |
 | 0D:4578, 4894; 1C:4C43, 4E63 | `AND $02` | cancel: no attack with a direction held |
 | 0D:6D86, 6D89, 6D8C | `LD A,$00` | the harpy keeps her speed |
+| 13:4C32…4C4D, 13:528B…52A6 | `LD A` speed bytes | the spider's walk and jump with B held |
+| 13:60DE…61AD; 1C:616D…623C | `SUB`/`ADD $01` | a step on a web and its undo, with B held |
+| 13:61CE; 1C:625D | `ADD A,$80/$40` | the web's animation, with B held |
+| 13:478D; 1C:5D69 | `CP $64` | the web test: in the air only on a new A |
 
 ## Checks
 
@@ -303,9 +354,11 @@ feature off and on, a frame at a time, and reads her object:
   Transformations off, 324 frames the same with the feature on and off.
 
 `python tools/check_forms.py` plays the transformations, from `logs/states/dance.state`
-(turned into the monkey and the harpy) and `logs/states/tinkerbat-gap.state` (the tinkerbat
-on the ice tower's ledge, scene 3A, where the user's state2 of 2026-10-06 stood), with
-Transformations off and on:
+(turned into the monkey, the elephant, the harpy, the spider and the tinkerbat),
+`logs/states/tinkerbat-gap.state` (the tinkerbat on the ice tower's ledge, scene 3A, where the
+user's state2 of 2026-10-06 stood), `logs/states/pillar.state` (the tinkerbat on the beach,
+scene 3C, left of the orange pillar) and `logs/states/web.state` (in front of a web, scene 42,
+turned into the spider and the tinkerbat), with Transformations off and on:
 
 - The monkey and the tinkerbat, B and a direction from standing: the original attacks on the spot
   for 16 and 13 frames, then runs; the slide moves 2 pixels on every frame from the press
@@ -320,11 +373,29 @@ Transformations off and on:
   more than 20 pixels through it and six sounds are queued (the talon's and five flaps'); the
   talon lasts its 20 frames and its hit comes out. The original sinks, with the talon's sound
   only; so does v0.1.11.
-- The tinkerbat's squeeze: down the wall into the hidden passage and through it, then up the
-  shaft's far wall into the alcove; the original climbs past.
-- `--original <exe>`: with Transformations off, the tinkerbat's, the monkey's (now with B
-  pressed while walking) and the harpy's (flaps, a talon with A during it, a talon in her run)
-  routes give the same object as the previous release, byte for byte.
+- The tinkerbat with the monkey's box: down the wall into the hidden passage and through it,
+  then up the shaft's far wall into the alcove; up the beach's end wall into the pipe maze and
+  up its shaft. The original climbs past.
+- The tinkerbat walking into the pillar, Down and B: two charges break it and she walks on
+  once it has crumbled; the original's walk takes B as the sword.
+- The charges: B (Down and B) during one charges again at full speed, A jumps; with Left held,
+  from standing or during a charge right, the charge goes left. The original ignores the
+  presses and charges the way she faced.
+- The elephant's turn: B charges and A jumps the way it turns her; B on her landing's first,
+  11th and 26th frames charges; on the frame after a stomp's hit a direction walks, B charges
+  and A jumps, and with Down alone it plays its 40 frames. The original drops those presses.
+- Climbing with B held, the monkey and the tinkerbat: two pixels a frame. The monkey's air
+  claw: run speed with B held, walk speed without.
+- The spider: two pixels a frame with B held; a shot on the move keeps her moving and its web
+  still flies; on the web two pixels a frame with B held.
+- Webs, the spider and the tinkerbat: a jump in front of one is a jump, A in the air takes
+  hold, A on it jumps off and A again takes hold; the tinkerbat climbs two pixels a frame
+  with B held. The original takes hold as the jump starts and ignores A on the web.
+- The spider's shot in the expanded view (426 by 240): it flies until it leaves the picture
+  (here the room's left edge, 49 frames), in the original view its 29 (`docs/expanded-view.md`).
+- `--original <exe>`: with Transformations off, 1844 frames of the tinkerbat's, the monkey's,
+  the elephant's, the harpy's and the spider's routes (attacks, charges, turns, stomps, shots,
+  flaps, climbs, webs) give the same object as the previous release, byte for byte.
 - `--original <exe>` (the previous release's): with the feature off, 324 frames of whips,
   runs, jumps and crawls give the same object, byte for byte.
 

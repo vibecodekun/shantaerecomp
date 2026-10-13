@@ -1,8 +1,9 @@
 /*
- * forms.c -- "Smoother movement" for the transformations: the monkey (bank
- * 0D), the harpy (bank 0D) and the tinkerbat (bank 1C). Shantae's own moves
- * are in moveset.c; the same settings apply ("Whip on the move", "Air speed"),
- * with "Transformations" to turn this part off.
+ * forms.c -- "Smoother movement" for the transformations: the monkey, the
+ * elephant and the harpy (bank 0D), the spider (bank 13) and the tinkerbat
+ * (bank 1C). Shantae's own moves are in moveset.c; the same settings apply
+ * ("Whip on the move", "Air speed"), with "Transformations" to turn this part
+ * off.
  *
  * The monkey and the tinkerbat are built like Shantae: an idle, a walk and a
  * run that reads the run flag CB3C ("start moving" scripts 0D:47ED, 1C:4DC8),
@@ -24,7 +25,13 @@
  *   direction are held.
  * - Air speed: the CP 0 after each read of +$64 (0D:4E48, 0D:4E74 in the
  *   monkey's jump; 1C:5518, 1C:5544 in the tinkerbat's fall and jump, 1C:5724,
- *   1C:5750 in her air sword) is "not zero" while B is held.
+ *   1C:5750 in her air sword) is "not zero" while B is held. The monkey's air
+ *   claw (0D:4ED7) only turns her (0D:4F85, 0D:4F8D) and keeps the speed of
+ *   the jump's last tick, which is walk speed after B is let go to press it;
+ *   here a direction gives the jump's speed, as the tinkerbat's air sword does.
+ * - Climbing (0D:4ABE, 1C:5080) is a pixel a tick (0D:4B6F, 0D:4B8B; 1C:5131,
+ *   1C:514D); with B held it is two, and the climb's animation counter (+$66)
+ *   moves twice as far.
  *
  * The harpy has no run flag: her run (0D:6F38) adds speed on every tick up to
  * two pixels, and her talon (0D:751F) keeps it, but the talon ends in the idle
@@ -40,17 +47,59 @@
  * what the flap script does for it, at the script pass where the flap script
  * would, and the talon plays on.
  *
- * The tinkerbat squeezes. Her box (00:2975 loads it from each frame) is 10 by
- * 20 pixels, the monkey's 7 by 14 with the same feet, and the wall and floor
- * tests (00:29F6) take the whole height, so a passage the monkey walks or
- * climbs into (16 pixels tall, as in the ice tower's warp squid alcove) is a
- * wall to her. Before each tick's movement her box is the monkey's height,
- * feet kept, when that box is clear of solid tiles and either her own is not
- * or she is pressing into a wall with an opening the smaller box fits. The
- * tiles are read as 00:2CCF and 00:3297 do (02 and 62 are solid).
+ * The elephant charges with B (script 0D:64A5, routine 0D:650E) and the
+ * tinkerbat with Down and B (1C:646D, 1C:64CA). The charge routines read no
+ * buttons, so a charge ran until its speed was gone. Here a new B (Down and B
+ * for the tinkerbat) during it charges again and a new A jumps (0D:60B6,
+ * 1C:51F9), as from standing. The tinkerbat's charge started only from
+ * standing (1C:4C82): her walk, run and landing take B as the sword. Here
+ * Down and B charge from them too, so she can charge while pressing into what
+ * she breaks. A charge hits what it touches when it starts (00:39A3 needs the
+ * object's +$1F, set when she pushes into it), not what it runs into.
  *
- * Nothing here is kept between ticks: every decision is made from the joypad,
- * her object and the map.
+ * A charge goes the way she faces (its script's native call, 0D:64E9 and
+ * 1C:64A5, reads +$31), and the idle and walk routines take B after a
+ * direction, so B with the other way held charged the way she was facing.
+ * Here a charge starting on a tick, from a charge too, faces the way held.
+ * The elephant's turn (script 0D:5EF7, routine 0D:5F1E: ten ticks, then
+ * 0D:5F15 faces her about), her landing (0D:61D8) and her stomp (0D:62A6, a
+ * landing with Down held: the hit, then four frames of ten ticks in 0D:62D8)
+ * take no B, and the turn and the stomp no buttons at all, so a B during the
+ * turn was lost and the stomp held her for 40 ticks. Here B charges and A
+ * jumps from the turn, facing the way it turns her; B charges from the
+ * landing; and from the tick after the stomp's hit B charges, A jumps and a
+ * direction hands on to the idle script, whose routine walks or turns her.
+ *
+ * The spider walks a pixel a tick (13:4C2E, 13:4C43) and has no run. Here B
+ * held is two, with the walk's animation at twice the rate, and with "Air
+ * speed" the same in her jump (13:5280, 13:5295). A new B starts her shot
+ * (script 13:4C77), whose routine 13:4CA0 is a RET: she stands for its six
+ * ticks. With "Whip on the move" not "Original", a direction held during it
+ * moves her with the walk's mover (13:4BE5), at run speed with B held, so B
+ * runs and shoots at once. On a web (tiles $64, routine 13:6068) she moves a
+ * pixel a tick each way, undone when the tile there is solid (13:476B); with
+ * B held each step and its undo are two, and her animation (+$75) twice. The
+ * tinkerbat climbs webs with a copy of it (1C:6113, with no shot), the same
+ * with B held.
+ *
+ * Webs. The spider's jump and fall (13:5105) and the tinkerbat's (1C:5375)
+ * take hold of a web whenever the tile by her feet is one (13:476B, 1C:5D41),
+ * and the tinkerbat's jump script (1C:5282, through 1C:529B) before she has
+ * left the ground, so a jump in front of a web stuck to it; on a web A did
+ * nothing. Here the test finds a web in the air only on a new A and never as
+ * a jump starts, and a new A on a web jumps off it with the script for
+ * climbing off its top (13:5063, 1C:51B7): A jumps, A again takes hold, and
+ * A on the web jumps off.
+ *
+ * The tinkerbat has the monkey's box. Hers (00:2975 loads it from each frame,
+ * at +$47-+$4E) is 10 by 20 pixels, the monkey's 7 by 14 with the same feet
+ * and middle, and the wall and floor tests (00:29F6, the climb's 1C:4F51)
+ * take the whole box, so the 16-pixel pipes and passages the monkey climbs
+ * through were walls to her. Before each tick's movement her frame's box is
+ * the monkey's, feet and middle kept.
+ *
+ * Nothing here is kept between ticks: every decision is made from the joypad
+ * and her object.
  */
 #include "forms.h"
 #include "moveset.h"
@@ -65,24 +114,38 @@ int shantae_player_move_early(GBContext *ctx);
 #define PAD_B 0x02
 #define PAD_RIGHT 0x10
 #define PAD_LEFT 0x20
+#define PAD_DOWN 0x80
 
 #define PLAYER_POINTER 0xCA13
 #define RUN_FLAG 0xCB3C
 #define STANCE 0xCB54     /* 1 in the air */
+#define INPUT_HELD 0xCB70 /* set by scripts: the idle routines read no buttons */
+#define WALKED 0xCB79     /* set while a scene walks her: the routines only move her */
 #define FORM 0xCB72
-#define MAP_PAGE 0xC9F9   /* the map's block directory: its page, then its bank */
 #define SOUNDS 0xC203     /* op BC (00:13D7): the newest entry's offset, then 16 entries of 8 bytes */
 
 #define WALK_SPEED 0x100
 #define RUN_SPEED 0x200
-#define SQUEEZED_HEIGHT 14   /* the monkey's box */
+#define MONKEY_WIDTH 7    /* the monkey's box */
+#define MONKEY_HEIGHT 14
 
 #define HARPY_TALON_SCRIPT 0x74E5   /* to 0D:751E; the talon routine follows it */
 #define HARPY_TALON 0x751F
 #define FLAP_LIFT (-0x281)          /* $FFFD7F, 0D:7289 */
 #define FLAP_PULL 0x18              /* 0D:725B */
 
-enum { MONKEY = 1, HARPY = 3, TINKERBAT = 5 };
+#define SPIDER_SHOT 0x4CA0          /* the shot's routine: RET */
+#define SPIDER_WALK_MOVER 0x4BE5    /* the walk routine's tail: 13:4630, 13:4790, 13:47ED */
+#define TINKERBAT_WALK 0x4E0F
+#define TINKERBAT_RUN 0x5C00
+#define TINKERBAT_LANDING 0x5596
+#define ELEPHANT_IDLE_SCRIPT 0x5BE6
+#define ELEPHANT_TURN 0x5F1E        /* script 0D:5EF7 */
+#define ELEPHANT_LANDING 0x61D8
+#define ELEPHANT_STOMP 0x62D8       /* script 0D:62A6, which ends where the routine starts */
+#define ELEPHANT_STOMP_SCRIPT 0x62A6
+
+enum { MONKEY = 1, ELEPHANT = 2, HARPY = 3, SPIDER = 4, TINKERBAT = 5 };
 
 /* The two forms built like Shantae. */
 typedef struct {
@@ -93,25 +156,69 @@ typedef struct {
 static const Form s_monkey = {MONKEY, 0x0D, 0x4FCC, 0x47ED};
 static const Form s_tinkerbat = {TINKERBAT, 0x1C, 0x57B0, 0x4DC8};
 
+/* The two charges: the routine, and the scripts the idle routine starts for B and A. */
+typedef struct {
+    uint8_t form, bank;
+    uint16_t routine, charge, jump;
+} Charge;
+static const Charge s_charges[2] = {
+    {ELEPHANT, 0x0D, 0x650E, 0x64A5, 0x60B6},
+    {TINKERBAT, 0x1C, 0x64CA, 0x646D, 0x51F9},
+};
+
+/* The webs: the routine on one, the script that climbs off its top with a
+ * jump, the CP $64 that ends the web test (13:476B, 1C:5D41), and where the
+ * test returns to in the jump and fall routine and in the tinkerbat's jump
+ * script (1C:529B). */
+typedef struct {
+    uint8_t form, bank;
+    uint16_t routine, jump_off, test, in_air, at_start;
+} Web;
+static const Web s_webs[2] = {
+    {SPIDER, 0x13, 0x6068, 0x5063, 0x478D, 0x5192, 0},
+    {TINKERBAT, 0x1C, 0x6113, 0x51B7, 0x5D69, 0x5456, 0x52A5},
+};
+
+/* The climbs: the first LD A of the speed up (and down), and the animation's ADD (SUB) $40. */
+typedef struct {
+    uint8_t bank;
+    uint16_t up, up_step, down, down_step;
+} Climb;
+static const Climb s_climbs[2] = {
+    {0x0D, 0x4B73, 0x4B81, 0x4B8F, 0x4B9D},   /* the monkey, 0D:4ABE */
+    {0x1C, 0x5135, 0x5143, 0x5151, 0x515F},   /* the tinkerbat, 1C:5080 */
+};
+
 static uint8_t *global(GBContext *ctx, unsigned addr) { return ctx->wram + (addr - 0xC000); }
 
 static int forms_on(GBContext *ctx) {
     return shantae_smooth_moves() && shantae_smooth_forms() && ctx->wram && ctx->rom;
 }
 
+static unsigned player_pointer(GBContext *ctx) {
+    return *global(ctx, PLAYER_POINTER) | *global(ctx, PLAYER_POINTER + 1) << 8;
+}
+
 static uint8_t *player_slot(GBContext *ctx) {
-    const unsigned p = *global(ctx, PLAYER_POINTER) | *global(ctx, PLAYER_POINTER + 1) << 8;
+    const unsigned p = player_pointer(ctx);
     return p && shantae_slot_index(ctx, p) >= 0 ? shantae_slot_memory(ctx, p) : 0;
 }
 
 /* The player's slot when BC, the routine's object, is it. */
 static uint8_t *player(GBContext *ctx) {
-    const unsigned p = *global(ctx, PLAYER_POINTER) | *global(ctx, PLAYER_POINTER + 1) << 8;
-    return ctx->bc == p ? player_slot(ctx) : 0;
+    return ctx->bc == player_pointer(ctx) ? player_slot(ctx) : 0;
 }
+
+static unsigned word_of(const uint8_t *p) { return p[0] | p[1] << 8; }
 
 static uint32_t speed_bytes(unsigned right_speed, int left) {
     return (left ? ~right_speed : right_speed) & 0xFFFFFF;
+}
+
+static void set_speed(uint8_t *s, uint32_t speed) {
+    s[0x41] = (uint8_t)speed;
+    s[0x42] = (uint8_t)(speed >> 8);
+    s[0x43] = (uint8_t)(speed >> 16);
 }
 
 static void set_script(uint8_t *s, uint8_t bank, unsigned script) {
@@ -126,6 +233,12 @@ static void set_script(uint8_t *s, uint8_t bank, unsigned script) {
 static uint8_t rom_byte(GBContext *ctx, unsigned bank, unsigned addr) {
     const size_t at = addr < 0x4000 ? addr : (size_t)bank * 0x4000 + (addr & 0x3FFF);
     return at < ctx->rom_size ? ctx->rom[at] : 0;
+}
+
+/* One of the three operands that write a speed, low byte first: its byte. */
+static int speed_operand(uint32_t speed, unsigned byte, uint8_t *value) {
+    *value = (uint8_t)(speed >> byte * 8);
+    return 1;
 }
 
 /* --- The monkey and the tinkerbat ---------------------------------------- */
@@ -173,68 +286,31 @@ static AttackRun *attack_run(GBContext *ctx) {
     return r;
 }
 
-/* --- The tinkerbat's squeeze ---------------------------------------------- */
-
-/* The 8 by 8 tile at (x, y) is solid, found as 00:2CCF and 00:3297 find it:
- * a row of the table at 00:0300, the block from the directory at C9F9 (in
- * bank C9FA), its metatile (two bytes), and the quarter's byte at +8 to +B of
- * the metatile's record, in bank FFDF plus the metatile's low nibble. */
-static int solid(GBContext *ctx, int x, int y) {
-    const unsigned xl = x & 0xFF, xh = (x >> 8) & 0xFF, yl = y & 0xFF, yh = (y >> 8) & 0xFF;
-    const unsigned row = (yl >> 3) & 0xFE;
-    const unsigned e = (((xl >> 3) & 0xFE) + rom_byte(ctx, 0, 0x300 + row)) & 0xFF;
-    const unsigned dir_bank = *global(ctx, MAP_PAGE + 1);
-    const unsigned entry = (((yh >> 2) + *global(ctx, MAP_PAGE)) & 0xFF) << 8 | ((((yh & 3) << 6) + xh * 2) & 0xFF);
-    const unsigned d = (rom_byte(ctx, 0, 0x301 + row) + rom_byte(ctx, dir_bank, entry)) & 0xFF;
-    const unsigned bank = rom_byte(ctx, dir_bank, entry + 1), metatile = d << 8 | e;
-    const unsigned b0 = rom_byte(ctx, bank, metatile), b1 = rom_byte(ctx, bank, metatile + 1);
-    const unsigned quarter = ((xl & 0x0F) >> 3) + ((yl & 8) >> 2);
-    const uint8_t v = rom_byte(ctx, (ctx->hram[0x5F] + (b0 & 0x0F)) & 0xFF, b1 << 8 | ((b0 & 0xF0) + 8 + quarter));
-    return v == 0x02 || v == 0x62;
-}
-
-/* A solid tile in the box from (x0, y0) to (x1, y1), edges included. */
-static int hits(GBContext *ctx, int x0, int y0, int x1, int y1) {
-    for (int ty = y0 >> 3; ty <= y1 >> 3; ty++)
-        for (int tx = x0 >> 3; tx <= x1 >> 3; tx++)
-            if (solid(ctx, tx * 8, ty * 8)) return 1;
-    return 0;
-}
-
-static int word_at(const uint8_t *p) { return (int16_t)(p[0] | p[1] << 8); }
-
-static void squeeze(GBContext *ctx, uint8_t *s) {
-    /* Her frame's own box, as 00:2975 loads it: the frame (+$2E bank, +$2F)
-     * for her facing, then x, y, width and height from +$10. */
+/* The tinkerbat's frame box, the monkey's size: as 00:2975 loads it, the
+ * frame (+$2E bank, +$2F) for her facing, then x, y, width and height from
+ * +$10, to +$47 (x), +$4B (y), +$49 (width) and +$4D (height). */
+static void monkey_box(GBContext *ctx, uint8_t *s) {
     if (s[0x2E] == 0xFF || s[0x31] > 1) return;
     const unsigned frame = (s[0x2F] | s[0x30] << 8) + s[0x31] * 2;
     const unsigned data = (rom_byte(ctx, s[0x2E], frame) | rom_byte(ctx, s[0x2E], frame + 1) << 8) + 0x10;
-    uint8_t box[8];
-    for (int i = 0; i < 8; i++) box[i] = rom_byte(ctx, s[0x2E], data + i);
-    const int xo = word_at(box), yo = word_at(box + 2), w = word_at(box + 4), h = word_at(box + 6);
-    if (h <= SQUEEZED_HEIGHT || h > 64 || w <= 0 || w > 64) return;
-    /* Only her frame's box or the squeezed one: anything else was set on
-     * purpose. */
-    const int now_yo = word_at(s + 0x4B), now_h = word_at(s + 0x4D);
-    if (!(now_yo == yo && now_h == h) && !(now_yo == yo + h - SQUEEZED_HEIGHT && now_h == SQUEEZED_HEIGHT)) return;
-    const int x = s[0x34] | s[0x35] << 8, y = s[0x37] | s[0x38] << 8;
-    const int left = x + word_at(s + 0x39) + xo, right = left + w;
-    const int top = y + word_at(s + 0x3B) + yo, bottom = top + h, low = bottom - SQUEEZED_HEIGHT;
-    const uint8_t held = ctx->hram[0x0B];
-    int small = 0;
-    if (!hits(ctx, left, low, right, bottom)) {
-        if (hits(ctx, left, top, right, bottom))
-            small = 1;   /* only the smaller box fits where she is */
-        else if (held & PAD_LEFT)
-            small = hits(ctx, left - 1, top, left - 1, bottom) && !hits(ctx, left - 1, low, left - 1, bottom);
-        else if (held & PAD_RIGHT)
-            small = hits(ctx, right + 1, top, right + 1, bottom) && !hits(ctx, right + 1, low, right + 1, bottom);
+    int16_t box[4];
+    for (int i = 0; i < 4; i++)
+        box[i] = (int16_t)(rom_byte(ctx, s[0x2E], data + i * 2) | rom_byte(ctx, s[0x2E], data + i * 2 + 1) << 8);
+    const int xo = box[0], yo = box[1], w = box[2], h = box[3];
+    if (w <= MONKEY_WIDTH || h <= MONKEY_HEIGHT || w > 64 || h > 64) return;
+    const int small_xo = xo + (w - MONKEY_WIDTH + 1) / 2, small_yo = yo + h - MONKEY_HEIGHT;
+    /* Only her frame's box or the monkey's: anything else was set on purpose. */
+    const int16_t now[4] = {(int16_t)word_of(s + 0x47), (int16_t)word_of(s + 0x4B), (int16_t)word_of(s + 0x49),
+                            (int16_t)word_of(s + 0x4D)};
+    const int own = now[0] == xo && now[1] == yo && now[2] == w && now[3] == h;
+    const int small = now[0] == small_xo && now[1] == small_yo && now[2] == MONKEY_WIDTH && now[3] == MONKEY_HEIGHT;
+    if (!own && !small) return;
+    const int16_t out[4][2] = {{0x47, (int16_t)small_xo}, {0x49, MONKEY_WIDTH}, {0x4B, (int16_t)small_yo},
+                               {0x4D, MONKEY_HEIGHT}};
+    for (int i = 0; i < 4; i++) {
+        s[out[i][0]] = (uint8_t)out[i][1];
+        s[out[i][0] + 1] = (uint8_t)(out[i][1] >> 8);
     }
-    const int box_top = small ? yo + h - SQUEEZED_HEIGHT : yo, box_h = small ? SQUEEZED_HEIGHT : h;
-    s[0x4B] = (uint8_t)box_top;
-    s[0x4C] = (uint8_t)(box_top >> 8);
-    s[0x4D] = (uint8_t)box_h;
-    s[0x4E] = (uint8_t)(box_h >> 8);
 }
 
 void shantae_forms_tick(GBContext *ctx) {
@@ -248,16 +324,16 @@ void shantae_forms_tick(GBContext *ctx) {
                        !(shantae_whip_moving() == SHANTAE_WHIP_CANCEL && (held & (PAD_LEFT | PAD_RIGHT)));
     *global(ctx, RUN_FLAG) = (held & PAD_B) && !attack;
     uint8_t *s;
-    if (form == TINKERBAT && (s = player_slot(ctx)) && s[0] != 0xFF) squeeze(ctx, s);
+    if (form == TINKERBAT && (s = player_slot(ctx)) && s[0] != 0xFF) monkey_box(ctx, s);
 }
 
-void shantae_forms_script_pass(GBContext *ctx) {
-    if (!forms_on(ctx) || *global(ctx, FORM) != HARPY || !(ctx->hram[0x0C] & PAD_A)) return;
-    uint8_t *s = player_slot(ctx);
-    if (!s || s[0] == 0xFF || s[0x19] != 0x0D || (s[0x1B] | s[0x1C] << 8) != HARPY_TALON) return;
+/* --- The script pass: the harpy's flaps, the charges ----------------------- */
+
+static void harpy_flap(GBContext *ctx, uint8_t *s) {
+    if (!(ctx->hram[0x0C] & PAD_A) || s[0x19] != 0x0D || word_of(s + 0x1B) != HARPY_TALON) return;
     /* Still the talon's script: on a landing this tick 0D:694C has set the
      * landing's. */
-    const unsigned script = s[0x02] | s[0x03] << 8;
+    const unsigned script = word_of(s + 0x02);
     if (s[0x04] != 0x0D || script < HARPY_TALON_SCRIPT || script >= HARPY_TALON) return;
     /* 0D:7256: the speed less $18, and at least the flap's lift. */
     int32_t speed = (int32_t)((uint32_t)(s[0x44] | s[0x45] << 8 | s[0x46] << 16) << 8) >> 8;
@@ -278,11 +354,155 @@ void shantae_forms_script_pass(GBContext *ctx) {
     e[4] = 0x00;
 }
 
+/* After this tick's routines and before the scripts: the script a routine
+ * that takes no press (a charge, the elephant's turn, landing and stomp, the
+ * tinkerbat's walk, run and landing for Down and B) has left is the one this
+ * tick's presses start instead, in the idle routines' order (B over A). On
+ * the tick a charge runs out its routine has set the idle script, which the
+ * press replaces too. */
+static void charge_presses(GBContext *ctx, uint8_t *s, uint8_t form) {
+    const uint8_t pressed = ctx->hram[0x0C], held = ctx->hram[0x0B];
+    if (*global(ctx, INPUT_HELD) || *global(ctx, WALKED)) return;
+    const Charge *c = &s_charges[form == TINKERBAT];
+    if (s[0x19] != c->bank) return;
+    const unsigned routine = word_of(s + 0x1B), script = word_of(s + 0x02);
+    const int charge = (pressed & PAD_B) && (form == ELEPHANT || (held & PAD_DOWN));
+    const int jump = (pressed & PAD_A) != 0;
+    int charges = 0, jumps = 0;   /* what a press does in this routine */
+    if (routine == c->routine) {
+        charges = jumps = 1;
+    } else if (form == ELEPHANT && routine == ELEPHANT_TURN) {
+        charges = jumps = 1;
+        if (charge || jump) s[0x31] ^= 1;   /* the way the turn faces her (0D:5F15) */
+    } else if (form == ELEPHANT && routine == ELEPHANT_LANDING) {
+        charges = 1;   /* it takes A and the directions itself */
+    } else if (form == ELEPHANT && routine == ELEPHANT_STOMP) {
+        /* Its hit is out: the script's native call 04:5641 set it as she landed. */
+        if (s[0x04] != 0x0D || script < ELEPHANT_STOMP_SCRIPT || script >= ELEPHANT_STOMP) return;
+        charges = jumps = 1;
+        if (!charge && !jump && (held & (PAD_LEFT | PAD_RIGHT))) set_script(s, 0x0D, ELEPHANT_IDLE_SCRIPT);
+    } else if (form == TINKERBAT) {
+        charges = routine == TINKERBAT_WALK || routine == TINKERBAT_RUN || routine == TINKERBAT_LANDING;
+    }
+    if (charge && charges) set_script(s, c->bank, c->charge);
+    else if (jump && jumps) set_script(s, c->bank, c->jump);
+    /* A charge starting now, from the idle or walk routine too, faces the way held. */
+    if (charge && s[0x04] == c->bank && word_of(s + 0x02) == c->charge) {
+        if (held & PAD_LEFT) s[0x31] = 1;
+        else if (held & PAD_RIGHT) s[0x31] = 0;
+    }
+}
+
+/* A new A on a web jumps off it; her jump steers from the next tick. */
+static void web_presses(GBContext *ctx, uint8_t *s, const Web *w) {
+    if (!(ctx->hram[0x0C] & PAD_A) || *global(ctx, INPUT_HELD) || *global(ctx, WALKED)) return;
+    if (s[0x19] != w->bank || word_of(s + 0x1B) != w->routine) return;
+    set_speed(s, 0);
+    set_script(s, w->bank, w->jump_off);
+}
+
+void shantae_forms_script_pass(GBContext *ctx) {
+    uint8_t *s;
+    if (!forms_on(ctx) || !(s = player_slot(ctx)) || s[0] == 0xFF) return;
+    const uint8_t form = *global(ctx, FORM);
+    if (form == HARPY) harpy_flap(ctx, s);
+    if (form == ELEPHANT || form == TINKERBAT) charge_presses(ctx, s, form);
+    if (form == SPIDER || form == TINKERBAT) web_presses(ctx, s, &s_webs[form == TINKERBAT]);
+}
+
+/* --- The spider's shot ---------------------------------------------------- */
+
+int shantae_forms_dispatch(GBContext *ctx, uint16_t addr) {
+    if (!forms_on(ctx) || *global(ctx, FORM) != SPIDER || shantae_whip_moving() == SHANTAE_WHIP_ORIGINAL) return 0;
+    const unsigned p = player_pointer(ctx);
+    uint8_t *s;
+    if (!p || addr != (uint16_t)(p + 0x1A) || ctx->rom_bank != 0x13 || !(s = player_slot(ctx))) return 0;
+    if (s[0x19] != 0x13 || s[0x1A] != 0xC3 || word_of(s + 0x1B) != SPIDER_SHOT) return 0;
+    const uint8_t held = ctx->hram[0x0B];
+    if (!(held & (PAD_LEFT | PAD_RIGHT))) return 0;
+    /* The walk before it has moved her in this tick ("Reduce input lag"). */
+    if (stepped_this_tick(ctx, s)) return 0;
+    const int left = !(held & PAD_RIGHT);
+    s[0x31] = (uint8_t)left;
+    set_speed(s, speed_bytes(held & PAD_B ? RUN_SPEED : WALK_SPEED, left));
+    /* The JP at +$1A, to the walk's mover in place of the RET. */
+    ctx->halt_bug = 0;
+    ctx->pc = SPIDER_WALK_MOVER;
+    gb_tick(ctx, 16);
+    return 1;
+}
+
+/* --- The operands ---------------------------------------------------------- */
+
+/* A climb's speed and animation step with B held: twice. */
+static int climb_operand(const Climb *c, uint16_t pc, uint8_t orig, uint8_t *value) {
+    if (pc == c->up_step || pc == c->down_step) {   /* ADD A,$40 / SUB $40 on +$66 */
+        if (orig != 0x40) return 0;
+        *value = 0x80;
+        return 1;
+    }
+    const int up = pc - c->up < 9;
+    const unsigned byte = (unsigned)(pc - (up ? c->up : c->down)) / 3;
+    const uint32_t slow = speed_bytes(WALK_SPEED, up);
+    if (orig != (uint8_t)(slow >> byte * 8)) return 0;
+    return speed_operand(speed_bytes(RUN_SPEED, up), byte, value);
+}
+
+static int spider_operand(GBContext *ctx, uint8_t *s, uint16_t pc, uint8_t orig, uint8_t *value) {
+    const uint8_t held = ctx->hram[0x0B];
+    if (!(held & PAD_B)) return 0;
+    switch (pc) {
+    case 0x4C32: case 0x4C35: case 0x4C38:   /* LD A,$FF/$FE/$FF: the walk, left */
+    case 0x4C47: case 0x4C4A: case 0x4C4D:   /* LD A,0/1/0: right */
+    case 0x528B: case 0x528E: case 0x5291:   /* the jump, left */
+    case 0x52A0: case 0x52A3: case 0x52A6: { /* and right */
+        const int left = pc < 0x4C47 || (pc >= 0x528B && pc < 0x52A0);
+        const unsigned first = pc < 0x5000 ? (left ? 0x4C32 : 0x4C47) : (left ? 0x528B : 0x52A0);
+        const unsigned byte = (unsigned)(pc - first) / 3;
+        if (orig != (uint8_t)(speed_bytes(WALK_SPEED, left) >> byte * 8)) return 0;
+        if (pc >= 0x5000 && !shantae_air_speed_b()) return 0;
+        if (pc == first && pc < 0x5000) {
+            /* The walk's animation at twice the rate: another $100 off the script's wait. */
+            const uint16_t timer = (uint16_t)(word_of(s + 0x16) - 0x100);
+            s[0x16] = (uint8_t)timer;
+            s[0x17] = (uint8_t)(timer >> 8);
+        }
+        return speed_operand(speed_bytes(RUN_SPEED, left), byte, value);
+    }
+    case 0x60DE: case 0x60F9: case 0x611A: case 0x6135:   /* SUB/ADD $01: a step on the web, and its undo */
+    case 0x6156: case 0x6171: case 0x6192: case 0x61AD:
+        if (orig != 0x01) return 0;
+        *value = 0x02;
+        return 1;
+    case 0x61CE:                                         /* ADD A,$80 on +$75: her animation */
+        if (orig != 0x80) return 0;
+        /* $100 in place of $80: the frame (+$76, 0 to 9) on by one. */
+        s[0x76] = (uint8_t)((s[0x76] + 1) % 10);
+        *value = 0x00;
+        return 1;
+    }
+    return 0;
+}
+
+/* The CP $64 that ends a web test: not a web where the test is her jump's or
+ * fall's, except on a new A, nor where it is her jump script's. */
+static int web_operand(GBContext *ctx, const Web *w, uint8_t orig, uint8_t *value) {
+    if (orig != 0x64) return 0;
+    const uint16_t back = gb_read16(ctx, ctx->sp);   /* POP DE / POP BC are done */
+    if (!(back == w->in_air && !(ctx->hram[0x0C] & PAD_A)) && !(w->at_start && back == w->at_start)) return 0;
+    *value = (uint8_t)~ctx->a;
+    return 1;
+}
+
 int shantae_forms_imm(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig, uint8_t *value) {
     uint8_t *s;
     if (!forms_on(ctx) || !(s = player(ctx))) return 0;
     const uint8_t form = *global(ctx, FORM), held = ctx->hram[0x0B];
     const Form *f = bank == 0x0D && form == MONKEY ? &s_monkey : bank == 0x1C && form == TINKERBAT ? &s_tinkerbat : 0;
+    for (int i = 0; i < 2; i++)
+        if (bank == s_webs[i].bank && pc == s_webs[i].test)
+            return form == s_webs[i].form && web_operand(ctx, &s_webs[i], orig, value);
+    if (bank == 0x13) return form == SPIDER && spider_operand(ctx, s, pc, orig, value);
     /* The original operand is matched too: the generator's HALT-bug copies of
      * these instructions read the opcode as the operand. */
     switch ((uint32_t)bank << 16 | pc) {
@@ -304,6 +524,28 @@ int shantae_forms_imm(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig, u
     case 0x1C5518: case 0x1C5544: case 0x1C5724: case 0x1C5750:
         if (!f || orig != 0x00 || !shantae_air_speed_b()) return 0;
         *value = held & PAD_B ? (uint8_t)~ctx->a : ctx->a;
+        return 1;
+    case 0x0D4F89: case 0x0D4F91: {                   /* LD A,1 / LD A,0 to +$31: the air claw turns her */
+        const int left = pc == 0x4F89;
+        if (!f || orig != (uint8_t)left) return 0;
+        /* And moves her at the jump's speed (0D:4E3C, 0D:4E68). */
+        const int fast = shantae_air_speed_b() ? (held & PAD_B) != 0 : s[0x64] != 0;
+        set_speed(s, speed_bytes(fast ? RUN_SPEED : WALK_SPEED, left));
+        return 0;
+    }
+    case 0x0D4B73: case 0x0D4B76: case 0x0D4B79: case 0x0D4B81:   /* the monkey climbing up */
+    case 0x0D4B8F: case 0x0D4B92: case 0x0D4B95: case 0x0D4B9D:   /* and down */
+    case 0x1C5135: case 0x1C5138: case 0x1C513B: case 0x1C5143:   /* the tinkerbat */
+    case 0x1C5151: case 0x1C5154: case 0x1C5157: case 0x1C515F:
+        return f && (held & PAD_B) && climb_operand(&s_climbs[bank == 0x1C], pc, orig, value);
+    case 0x1C616D: case 0x1C6188: case 0x1C61A9: case 0x1C61C4:   /* SUB/ADD $01: a step on the web, and its undo */
+    case 0x1C61E5: case 0x1C6200: case 0x1C6221: case 0x1C623C:
+        if (!f || orig != 0x01 || !(held & PAD_B)) return 0;
+        *value = 0x02;
+        return 1;
+    case 0x1C625D:                                                 /* ADD A,$40 on +$75: her animation on it */
+        if (!f || orig != 0x40 || !(held & PAD_B)) return 0;
+        *value = 0x80;
         return 1;
     case 0x0D4578: case 0x0D4894: case 0x1C4C43: case 0x1C4E63:   /* AND 2 on FF8C: a new B attacks */
         if (!f || orig != 0x02 || shantae_whip_moving() != SHANTAE_WHIP_CANCEL || !(held & (PAD_LEFT | PAD_RIGHT)))

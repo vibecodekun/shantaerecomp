@@ -825,6 +825,11 @@ int shantae_view_dispatch(GBContext *ctx, uint16_t addr) {
     return fill_dispatch(ctx, addr) || load_dispatch(ctx, addr);
 }
 
+int shantae_view_imm(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig, uint8_t *value) {
+    if (gb_custom_render != render || !ctx->wram) return 0;
+    return bank == 0x1A && pc == SHOT_COUNT_PC && orig == 0x01 && shot_operand(ctx, value);
+}
+
 /* A save state file was loaded (extras.c): mend what the view lost in it. */
 void shantae_view_state_file_loaded(GBContext *ctx) {
     if (gb_custom_render != render || !ctx->wram) return;
@@ -934,13 +939,13 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
     int own_tiles = 0;   /* cells of the last picture drawn from their object's own load */
     for (int i = 0; i < bg_visible.count; ++i) own_tiles += bg_visible.tiles[i].pattern != 0;
     if (s_ctx && s_ctx->wram) room = room_at(s_ctx, wram, camera_x, camera_y, status_bar(lcdc, window_x, window_y), 1);
-    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"crows\":%u,\"eyes\":%u,\"eye_boxes\":%u,\"jars\":%u,\"loads_kept\":%u,\"own_tiles\":%d,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d]}",
+    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"crows\":%u,\"eyes\":%u,\"eye_boxes\":%u,\"jars\":%u,\"loads_kept\":%u,\"shots_kept\":%u,\"own_tiles\":%d,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d]}",
                              id, ready, expanded, camera_x, camera_y, scroll_x, scroll_y, committed, commit_ly, line0_scx, line0_scy, widened, visible.count, oam_checked, oam_matched,
                              bg_visible.count, background_checked, background_matched, map_checked, map_matched, slots, free, spawn_waits, encounter_waits, early_releases, doors_restored,
                              counts.moves, counts.layered, counts.drawn, counts.upgrades, counts.reaped,
                              counts.node_pools, counts.node_upgrades, counts.node_repairs, counts.slot_repairs,
                              counts.children_freed, counts.town_tables, s_ctx ? shantae_view_town(s_ctx) : 0,
-                             s_ctx && s_ctx->wram ? activation_widened(s_ctx) : 0, fills, budget_reads, crows_restored, eye_reads, eye_boxes, jars_restored, loads_kept, own_tiles,
+                             s_ctx && s_ctx->wram ? activation_widened(s_ctx) : 0, fills, budget_reads, crows_restored, eye_reads, eye_boxes, jars_restored, loads_kept, shots_kept, own_tiles,
                              gb_custom_width, gb_custom_height, zoom, zoom_target, room.box.x0, room.box.y0,
                              room.box.x1, room.box.y1, room.masked, room_shown.x0, room_shown.y0,
                              room_shown.x1, room_shown.y1);

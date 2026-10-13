@@ -188,8 +188,10 @@ def check_iframes(off, on, state):
     unsafe = next(i for i, x in enumerate(f) if i > appears and not x["safe"])
     # The original's protection comes off (0E:4F7D) in the tick the colours come back, shown a frame later.
     assert unsafe == back - 1, ("the original's protection did not end with the silhouette", white, back, unsafe)
-    assert hit is not None and unsafe <= hit < unsafe + 30 and not any(x["hidden"] for x in f[:hit]), \
-        ("the original was not hit when its protection ended", appears, unsafe, hit)
+    # Hit within the frames the option protects her (the slider's pace depends on the state: 6 frames after
+    # the protection in the states of 2026-10-10 03:00, 66 in those of 07:47).
+    assert hit is not None and unsafe <= hit < unsafe + 118 and not any(x["hidden"] for x in f[:hit]), \
+        ("the original was not hit once its protection ended", appears, unsafe, hit)
     f = iframes(on, state)
     assert silhouette(f, appears) == (white, back), ("the silhouette", silhouette(f, appears), (white, back))
     match = next(i for i, x in enumerate(f) if x["safe"])
@@ -268,19 +270,20 @@ def check_turn_back(off, on, state):
         assert all(x["safe"] for x in f[:back]), (g.name, "hurtable while turning back")
         hit = next((i for i, x in enumerate(f) if x["hp"] < f[0]["hp"]), None)
         hidden = [i for i, x in enumerate(f) if x["hidden"]]
+        # When the slider reaches her depends on the state: the frame after she can move in the states of
+        # 2026-10-10 03:00, 121 frames later in those of 07:47.
         if g is off:
-            assert not f[back]["safe"] and hit is not None and back < hit < back + 60 and \
-                not [i for i in hidden if i < hit], \
+            assert not f[back]["safe"] and hit is not None and back < hit and not [i for i in hidden if i < hit], \
                 ("the original was not hit after turning back", back, hit, f[back])
             print_off = f"hit {hit - back} frame{'s' if hit - back != 1 else ''} after she can move"
         else:
             safe_until = next(i for i, x in enumerate(f) if i > back and not x["safe"])
             assert hidden and hidden[0] - back <= 1 and len(hidden) == 60 and hidden[-1] < safe_until, \
                 (back, hidden[:3], len(hidden), safe_until)
-            assert 118 <= safe_until - back <= 122 and hit is None, (back, safe_until, hit)
+            assert 118 <= safe_until - back <= 122 and (hit is None or hit >= safe_until), (back, safe_until, hit)
     print(f"PASS: turning back into Shantae beside the slider, protected while she turns back. Original: {print_off}. "
           f"With the option: she blinks and cannot be hurt for {safe_until - back} frames from the frame she can "
-          "move, and is not hurt")
+          "move, and is not hurt during them")
 
 
 ROUTE = [("T", 1), ("-", 6), ("D", 20), ("-", 6), ("R", 20), ("-", 40), ("T", 1), ("-", 10), ("T", 1), ("-", 3),

@@ -473,6 +473,273 @@ bank = 0x0D
 addr = 0x6D8C
 note = "LD A,$00: the harpy's idle speed, sign"
 
+# The monkey's air claw (0D:4ED7) only turns her and keeps the jump's speed:
+# a direction also gives the jump's speed (0D:4E3C, 0D:4E68), as the tinkerbat's
+# air sword does.
+[[imm_override]]
+bank = 0x0D
+addr = 0x4F89
+note = "LD A,$01 to +$31 in 0D:4F85, the air claw turning left: and its speed (hook only)"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4F91
+note = "LD A,$00 to +$31 in 0D:4F8D, the air claw turning right: and its speed (hook only)"
+
+# Climbing a pixel a tick: two with B held, and the climb's animation counter twice as far.
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B73
+note = "LD A,$FF in 0D:4B6F, the monkey climbing up: her speed, low byte"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B76
+note = "LD A,$FE: climbing up, pixels"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B79
+note = "LD A,$FF: climbing up, sign"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B81
+note = "ADD A,$40 on +$66: the climb's animation, up"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B8F
+note = "LD A,$00 in 0D:4B8B, the monkey climbing down: her speed, low byte"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B92
+note = "LD A,$01: climbing down, pixels"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B95
+note = "LD A,$00: climbing down, sign"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x4B9D
+note = "SUB $40 on +$66: the climb's animation, down"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5135
+note = "LD A,$FF in 1C:5131, the tinkerbat climbing up: her speed, low byte"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5138
+note = "LD A,$FE: climbing up, pixels"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x513B
+note = "LD A,$FF: climbing up, sign"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5143
+note = "ADD A,$40 on +$66: the climb's animation, up"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5151
+note = "LD A,$00 in 1C:514D, the tinkerbat climbing down: her speed, low byte"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5154
+note = "LD A,$01: climbing down, pixels"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5157
+note = "LD A,$00: climbing down, sign"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x515F
+note = "SUB $40 on +$66: the climb's animation, down"
+
+# The spider (bank 13) walks a pixel a tick: two with B held (and in the air
+# with "Air speed"). On a web (13:6068) each step and its undo is two.
+[[imm_override]]
+bank = 0x13
+addr = 0x4C32
+note = "LD A,$FF in 13:4C2E, the spider's walk left: her speed, low byte (and the animation's rate)"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x4C35
+note = "LD A,$FE: the walk left, pixels"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x4C38
+note = "LD A,$FF: the walk left, sign"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x4C47
+note = "LD A,$00 in 13:4C43, the spider's walk right: her speed, low byte (and the animation's rate)"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x4C4A
+note = "LD A,$01: the walk right, pixels"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x4C4D
+note = "LD A,$00: the walk right, sign"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x528B
+note = "LD A,$FF in 13:5280, the spider's jump left: her speed, low byte"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x528E
+note = "LD A,$FE: the jump left, pixels"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x5291
+note = "LD A,$FF: the jump left, sign"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x52A0
+note = "LD A,$00 in 13:5295, the spider's jump right: her speed, low byte"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x52A3
+note = "LD A,$01: the jump right, pixels"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x52A6
+note = "LD A,$00: the jump right, sign"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x60DE
+note = "SUB $01 on her x in 13:60D9: a step left on the web"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x60F9
+note = "ADD A,$01: its undo, where the tile is solid"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x611A
+note = "SUB $01 on her y in 13:6115: a step up on the web"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x6135
+note = "ADD A,$01: its undo"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x6156
+note = "ADD A,$01 on her x in 13:6151: a step right on the web"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x6171
+note = "SUB $01: its undo"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x6192
+note = "ADD A,$01 on her y in 13:618D: a step down on the web"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x61AD
+note = "SUB $01: its undo"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x61CE
+note = "ADD A,$80 on +$75 in 13:61C9: her animation on the web"
+
+# The tinkerbat's web routine (1C:6113) is the spider's without the shot: the
+# same with B held.
+[[imm_override]]
+bank = 0x1C
+addr = 0x616D
+note = "SUB $01 on her x in 1C:6168: a step left on the web"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x6188
+note = "ADD A,$01: its undo, where the tile is solid"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x61A9
+note = "SUB $01 on her y in 1C:61A4: a step up on the web"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x61C4
+note = "ADD A,$01: its undo"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x61E5
+note = "ADD A,$01 on her x in 1C:61E0: a step right on the web"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x6200
+note = "SUB $01: its undo"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x6221
+note = "ADD A,$01 on her y in 1C:621C: a step down on the web"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x623C
+note = "SUB $01: its undo"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x625D
+note = "ADD A,$40 on +$75 in 1C:6258: her animation on the web"
+
+# Taking hold of a web (forms.c): the tile test's last compare, which the jump
+# and fall routines (13:5192, 1C:5456) and the tinkerbat's jump script (1C:52A5)
+# return from. In the air a web is one only on a new A.
+[[imm_override]]
+bank = 0x13
+addr = 0x478D
+note = "CP $64 in 13:476B: the tile by her feet is a web"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x5D69
+note = "CP $64 in 1C:5D41: the tile by her feet is a web"
+
+# The spider's shot (expanded_view.c): its lifetime, +$61, counted down.
+[[imm_override]]
+bank = 0x1A
+addr = 0x78E2
+note = "SUB $01 on +$61 in 1A:78DD: the shot's last tick waits while it is in the picture"
+
 # "Dancing" (dance.c): quick steps. The dance routine 0E:4D40 ORs the held
 # buttons into CB59 while a beat's window is open; with quick steps the window
 # stays shut and each new press is a step, matched against 0E:4342 at once.

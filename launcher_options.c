@@ -224,9 +224,8 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
                  "air: B with a direction whips while she runs (or just runs, with Cancel), a "
                  "jump moves at running speed while B is held, B and Select work the moment she "
                  "lands, a landing whip no longer stops her, and B crawls at walking speed. With "
-                 "Transformations the monkey and tinkerbat move the same way, the harpy keeps "
-                 "her speed and flaps through her talons, and the tinkerbat squeezes through "
-                 "gaps the monkey fits. Off plays as the original.");
+                 "Transformations every form moves more freely: runs, charges, climbs and webs. "
+                 "Off plays as the original.");
         snprintf(out->group, sizeof(out->group), "Gameplay");
         if (shantae_smooth_moves())
             snprintf(out->status, sizeof(out->status), "On: %s, %s air speed, %s crawl, %s",
@@ -598,12 +597,12 @@ static int moves_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->id, sizeof(out->id), OPTION_FORMS);
         snprintf(out->label, sizeof(out->label), "Transformations");
         snprintf(out->description, sizeof(out->description),
-                 "Like Shantae: the monkey's claw and the tinkerbat's sword follow Whip on the "
-                 "move, their jumps follow Air speed, and B runs at once. The harpy keeps her "
-                 "speed when her talons end instead of starting her run again, and A flaps "
-                 "during them. The tinkerbat "
-                 "squeezes to the monkey's height where only that fits, so she can climb or walk "
-                 "into a gap the monkey can. Original: they move as in the game.");
+                 "Like Shantae: the monkey's claw and tinkerbat's sword follow Whip on the move, jumps "
+                 "follow Air speed, B runs at once (the spider too) and climbs faster. The harpy keeps "
+                 "her speed and flaps through talons. Charges can be redone, turned or jumped out of; "
+                 "the elephant charges from a turn or landing and moves right after a stomp. A takes "
+                 "hold of a web and jumps off it. The tinkerbat has the monkey's box. Original: as in "
+                 "the game.");
         snprintf(out->value, sizeof(out->value), "%s", forms[shantae_smooth_forms()][0]);
         snprintf(out->default_value, sizeof(out->default_value), "smoother");
         out->choice_count = 2;

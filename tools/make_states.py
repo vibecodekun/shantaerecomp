@@ -20,6 +20,16 @@ one with that inventory.
 - tinkerbat-gap.state: scene 3A (map 5B:CA, the ice tower), set down on the
   ledge at 5245,1176 and turned into the tinkerbat. Right of the ledge a wall
   drops to the hidden passage check_forms.py squeezes through.
+- pillar.state: scene 3C (map 4D:D4, the beach of the user's state1 of
+  2026-10-10), set down at 2194,1944 and turned into the tinkerbat, left of
+  the orange pillar (16:5966, x 2248) that a charge breaks in two hits; right
+  of it the beach ends in a wall at x 2496 with the pipe maze above. Shantae's
+  remark on landing is held through with B. The pillar rises (script 16:5867)
+  once its counter, C00D plus its +$20, is 4; the debug game has 3, so it is
+  poked, as the user's game had it.
+- web.state: scene 42 (map 67:85, as the user's state3), set down at
+  4128,1400 in her base form, on a floor in front of a wall of web tiles ($64)
+  the spider climbs.
 
 Writes logs/states/ (or --out); never touches user saves or settings.
 
@@ -169,6 +179,20 @@ def main():
             fly_to(g, 5245, 1160)
             transform(g, TINKERBAT_SCRIPT, TINKERBAT)
             save(g, args.out / "tinkerbat-gap.state", (5245, 1176), TINKERBAT)
+            scene(g, grid, 0x3C)
+            fly_to(g, 2194, 1928)
+            for _ in range(12):   # her remark: B held runs a line out, a new B the next
+                press(g, "B", 40)
+                press(g, "-", 4)
+            transform(g, TINKERBAT_SCRIPT, TINKERBAT)
+            pillar = [s for s in objects(g, 0x16) if (s[1], s[2]) == (2248, 1912)]
+            assert pillar and g.mem(0xC00E, 1)[0] == 3, ("the pillar and its counter", objects(g, 0x16))
+            g.c.command("poke", addr="0xc00e", hex="04")
+            press(g, "-", 200)   # it rises
+            save(g, args.out / "pillar.state", (2194, 1944), TINKERBAT)
+            scene(g, grid, 0x42)
+            fly_to(g, 4128, 1384)
+            save(g, args.out / "web.state", (4128, 1400))
         finally:
             g.close()
 

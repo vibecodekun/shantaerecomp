@@ -549,6 +549,21 @@ static int on_screen(GBContext *ctx, int slot) {
     return ox + (int)slot_byte(ctx, o + 0x57) >= left && ox < right &&
            oy + (int)slot_byte(ctx, o + 0x58) >= top && oy < bottom;
 }
+/* The spider's shot (script 1A:7889, routine 1A:78DD) lives 30 ticks, its
+ * +$61 counted down by the SUB $01 at 1A:78E2. At 3 pixels a tick that is
+ * about as far as the original's screen reaches ahead of her (its camera
+ * leads her), so in a wider picture the shot vanished in mid-air. While the
+ * shot is in the picture its last tick waits. */
+#define SHOT_COUNT_PC 0x78E2
+static unsigned shots_kept;
+static int shot_operand(GBContext *ctx, uint8_t *value) {
+    const int slot = shantae_slot_index(ctx, ctx->bc);
+    if (slot < 0 || ctx->a != 1 || slot_byte(ctx, shantae_slot_addr(slot) + 0x62) != 0) return 0;
+    if (!activation_widened(ctx) || !on_screen(ctx, slot)) return 0;
+    shots_kept++;
+    *value = 0x00;
+    return 1;
+}
 static int camera_distance(GBContext *ctx, int slot) {
     const unsigned o = shantae_slot_addr(slot);
     int dx = abs((int16_t)(slot_word(ctx, o + 0x34) - word(ctx->hram + 0x61) - 80));
