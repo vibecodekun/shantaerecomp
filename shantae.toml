@@ -94,6 +94,15 @@ bank = 0
 addr = 0x1384
 note = "ADD A,$7E, next object slot: run the player's new movement routine now (hook only)"
 
+# "Instant text" (dialogue.c): a new A runs the text loop (01:55F6, 1A:765E)
+# out to its end in the frame of the press, a run of the speaker's script at a
+# time: its timer is set so it runs now, and the pass steps on to the same slot
+# (ADD A,0 at 00:1384 above) until the text waits at its end.
+[[imm_override]]
+bank = 0
+addr = 0x1323
+note = "SUB $00 on a slot's timer in the script pass: the text's speaker runs now"
+
 # The object table grown past 32 slots for the expanded view (object_slots.c):
 # the loops that count slots take the table's size, and the unrolled movement
 # pass stops before slot 31 so the slots past it move first. The object

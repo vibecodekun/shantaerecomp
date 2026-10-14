@@ -60,6 +60,20 @@ void shantae_set_native_scaling(int scaling, int scale);
 enum { SHANTAE_ROOM_ZOOM_OFF, SHANTAE_ROOM_ZOOM_FILL, SHANTAE_ROOM_ZOOM_WHOLE };
 int shantae_room_zoom(void);
 void shantae_set_room_zoom(int mode);
+/* The bottom UI (the status bar, a dialogue box, a town's name panel): N view
+ * pixels for each of its pixels (1 the default, as the world's), or AUTO, as
+ * large on screen as in the original picture. Other than the world's, it is a
+ * layer the window draws through the shader chain at its own scale, and the
+ * world keeps above it. */
+#define SHANTAE_UI_AUTO 0
+#define SHANTAE_UI_MAX_SCALE 16
+int shantae_ui_scale(void);
+void shantae_set_ui_scale(int scale);
+/* While a dialogue box larger than the status bar would cover the room's
+ * floor, raise the world until it clears it (1, the default), or cover it as
+ * the original does (0). */
+int shantae_dialogue_lift(void);
+void shantae_set_dialogue_lift(int on);
 /* Pass a changed size or mode to a running expanded view (no-op when off). */
 void shantae_view_apply_size(void);
 

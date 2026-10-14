@@ -15,26 +15,34 @@ static int clamp(int value, int lo, int hi) {
 
 /* Activation widens only in a room (map directory C9F8-C9FA) the view has
  * presented expanded, so enemies never start early where nothing shows them.
- * Towns stay native (town_room below). */
+ * Towns keep the original activation (town_room below). */
 static int widened;
 static uint8_t widened_room[3];
 
-/* Towns keep the original picture and activation. Their camera wraps at 640
- * (04:6469, 04:64A3) past the room bounds, with spawn-record duplicates at +640
- * near the seam, and the door test (04:60E0) compares only the low byte of the
- * distance, so wider retention there lets a door 256 pixels away take over the
- * label and the entrance (the Firefly Shrine's in Water Town). All five are
- * one map, 67:9B, strips loaded by 18:5C3D, 18:5FEA, 18:638B, 18:6738 and
- * 18:6AD5 with the camera's x from 0 to 480 and its y pinned; no other room
- * load or bounds change gives those bounds. The shops and houses share the map,
- * so a town can't go by the map alone, and the building-name panel is not up on
- * every frame (a state load shows two frames without it), so it can't go by
- * the window either: one frame presented expanded widened the whole map. A
- * town's map load also builds the original object table (object_slots.c). */
+/* Towns keep the original activation. Their camera wraps at 640 (04:6469,
+ * 04:64BF) past the room bounds, their doors (their only spawn records) have
+ * duplicates at +640 near the seam, and the door test (04:60E0) compares only
+ * the low byte of the distance, so wider retention there lets a door 256
+ * pixels away take over the label and the entrance (the Firefly Shrine's in
+ * Water Town). The doors draw nothing, and the townsfolk (04:67E2) live as
+ * long as the town and are drawn wherever the town puts them, so a town is
+ * presented wide with nothing else: its street wraps (world_tile) and its room
+ * has no sides (room_at). All five are one map, 67:9B, strips loaded by
+ * 18:5C3D, 18:5FEA, 18:638B, 18:6738 and 18:6AD5 with the camera's x from 0 to
+ * 480 and its y pinned; no other room load or bounds change gives those
+ * bounds. The shops and houses share the map, so a town can't go by the map
+ * alone, and the building-name panel is not up on every frame (a state load
+ * shows two frames without it), so it can't go by the window either: one frame
+ * presented expanded widened the whole map. A town's map load also builds the
+ * original object table (object_slots.c). */
 static int town_room(const uint8_t *ram) {
     return ram[0x9f9] == 0x67 && ram[0x9fa] == 0x9b && word(ram + 0x9db) == 0 && word(ram + 0x9dd) == 480 &&
            word(ram + 0x9df) == word(ram + 0x9e1);
 }
+/* The width a town's street wraps at, like its camera, and the height of its
+ * art shown (room_at). */
+#define TOWN_WIDTH 640
+#define TOWN_ART 116
 
 /* Rooms. A scene scrolls the camera through C9DB-C9E2 (03:7920, and the
  * bounds-only 03:7A3D / 03:7AFE; greatest = least + span - 1); with the
@@ -222,21 +230,35 @@ static Room room_at(const GBContext *ctx, const uint8_t *ram, int cx, int cy, in
             }
         }
     }
-    if (!found) return room;
-    /* The camera's greatest y shows a picture's bottom above the status bar. */
-    pictured.y1 += hud;
-    Box b = room.box;
-    if (b.x0 < pictured.x0) b.x0 = pictured.x0;
-    if (b.y0 < pictured.y0) b.y0 = pictured.y0;
-    if (b.x1 > pictured.x1) b.x1 = pictured.x1;
-    if (b.y1 > pictured.y1) b.y1 = pictured.y1;
-    const Box camera_screen = {cx, cy, cx + 160, cy + 144};
-    box_add(&b, &camera_screen);
-    if (b.x0 < room.box.x0) b.x0 = room.box.x0;
-    if (b.y0 < room.box.y0) b.y0 = room.box.y0;
-    if (b.x1 > room.box.x1) b.x1 = room.box.x1;
-    if (b.y1 > room.box.y1) b.y1 = room.box.y1;
-    if (b.x0 < b.x1 && b.y0 < b.y1) room.box = b;
+    if (found) {
+        /* The camera's greatest y shows a picture's bottom above the status bar. */
+        pictured.y1 += hud;
+        Box b = room.box;
+        if (b.x0 < pictured.x0) b.x0 = pictured.x0;
+        if (b.y0 < pictured.y0) b.y0 = pictured.y0;
+        if (b.x1 > pictured.x1) b.x1 = pictured.x1;
+        if (b.y1 > pictured.y1) b.y1 = pictured.y1;
+        const Box camera_screen = {cx, cy, cx + 160, cy + 144};
+        box_add(&b, &camera_screen);
+        if (b.x0 < room.box.x0) b.x0 = room.box.x0;
+        if (b.y0 < room.box.y0) b.y0 = room.box.y0;
+        if (b.x1 > room.box.x1) b.x1 = room.box.x1;
+        if (b.y1 > room.box.y1) b.y1 = room.box.y1;
+        if (b.x0 < b.x1 && b.y0 < b.y1) room.box = b;
+    }
+    if (town_room(ram)) {
+        /* A town's street wraps (world_tile), so no side ends it. Its art
+         * starts at the bounds' y, 12 rows above the camera's top (Water
+         * Town's bounds are at 768, its camera at 780), and is shown down to
+         * the top of the name panel (line 104), where the original's ends:
+         * everyone's feet are at that line. All five strips have seven rows
+         * of metatiles from there and the street's edge in the eighth, 4 rows
+         * of grass or road under the panel's line and the map blank below;
+         * those 4 rows left everyone standing above the ground. */
+        const int y = (int)word(ram + 0x9df);
+        room.box = (Box){cx - SHANTAE_VIEW_MAX_WIDTH, y, cx + 160 + SHANTAE_VIEW_MAX_WIDTH, y + TOWN_ART};
+        room.masked = 0;
+    }
     return room;
 }
 /* Lines of a window along the bottom of the screen: the status bar from line
@@ -353,7 +375,7 @@ static Box spawn_box(const GBContext *ctx) {
     int x, y, across, down, width, height;
     activation_size(&width, &height);
     const Room room = live_room(ctx);
-    view_origin(&room.box, word(ctx->hram + 0x61), word(ctx->hram + 0x63), width, height, &x, &y);
+    view_origin(&room.box, word(ctx->hram + 0x61), word(ctx->hram + 0x63), width, layout_height(height), &x, &y);
     activation_guard(width, height, &across, &down);
     return (Box){at_least(x - across, room.box.x0 - SPAWN_MARGIN), at_least(y - down, room.box.y0 - SPAWN_MARGIN),
                  at_most(x + width + across, room.box.x1 + SPAWN_MARGIN),
@@ -541,6 +563,7 @@ static int on_screen(GBContext *ctx, int slot) {
     const unsigned o = shantae_slot_addr(slot);
     int x, y, width, height;
     activation_size(&width, &height);
+    height = layout_height(height);
     const Room room = live_room(ctx);
     view_origin(&room.box, word(ctx->hram + 0x61), word(ctx->hram + 0x63), width, height, &x, &y);
     const int left = at_least(x, room.box.x0), right = at_most(x + width, room.box.x1);

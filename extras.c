@@ -62,6 +62,7 @@
 #include "moveset.h"
 #include "dance.h"
 #include "forms.h"
+#include "dialogue.h"
 #include "gb_custom_view.h"
 
 #include <stdio.h>
@@ -88,6 +89,8 @@ static int s_view_adaptive;
 static int s_native_scaling = GB_CUSTOM_NATIVE_SCALING_MODE;
 static int s_native_scale = 1;
 static int s_room_zoom = SHANTAE_ROOM_ZOOM_FILL;
+static int s_ui_scale = 1;
+static int s_dialogue_lift = 1;
 static int s_remove_slowdown = 1;
 static int s_reduce_input_lag = 1;
 static int s_smooth_moves = 1;
@@ -98,6 +101,7 @@ static int s_smooth_forms = 1;
 static int s_easy_dance = 1;
 static int s_quick_steps = 1;
 static int s_transform_invincible = 1;
+static int s_instant_text = 1;
 
 static int clamp_int(int value, int lo, int hi) {
     return value < lo ? lo : value > hi ? hi : value;
@@ -137,6 +141,10 @@ static void load_settings(void) {
             s_native_scale = clamp_int(value, 1, SHANTAE_NATIVE_MAX_SCALE);
         } else if (sscanf(line, "room_zoom=%d", &value) == 1) {
             s_room_zoom = clamp_int(value, SHANTAE_ROOM_ZOOM_OFF, SHANTAE_ROOM_ZOOM_WHOLE);
+        } else if (sscanf(line, "ui_scale=%d", &value) == 1) {
+            s_ui_scale = clamp_int(value, SHANTAE_UI_AUTO, SHANTAE_UI_MAX_SCALE);
+        } else if (sscanf(line, "dialogue_lift=%d", &value) == 1) {
+            s_dialogue_lift = value != 0;
         } else if (sscanf(line, "remove_slowdown=%d", &value) == 1) {
             s_remove_slowdown = value != 0;
         } else if (sscanf(line, "reduce_input_lag=%d", &value) == 1) {
@@ -157,6 +165,8 @@ static void load_settings(void) {
             s_quick_steps = value != 0;
         } else if (sscanf(line, "transform_invincible=%d", &value) == 1) {
             s_transform_invincible = value != 0;
+        } else if (sscanf(line, "instant_text=%d", &value) == 1) {
+            s_instant_text = value != 0;
         }
     }
     fclose(f);
@@ -171,14 +181,15 @@ static void save_settings(void) {
     fprintf(f, "original_gbc_colors=%d\n", s_original_colors);
     fprintf(f, "expanded_view=%d\nview_width=%d\nview_height=%d\nview_adaptive=%d\n",
             s_expanded_view, s_view_width, s_view_height, s_view_adaptive);
-    fprintf(f, "native_scaling=%d\nnative_scale=%d\nroom_zoom=%d\n", s_native_scaling, s_native_scale,
-            s_room_zoom);
+    fprintf(f, "native_scaling=%d\nnative_scale=%d\nroom_zoom=%d\nui_scale=%d\ndialogue_lift=%d\n", s_native_scaling,
+            s_native_scale, s_room_zoom, s_ui_scale, s_dialogue_lift);
     fprintf(f, "remove_slowdown=%d\n", s_remove_slowdown);
     fprintf(f, "reduce_input_lag=%d\n", s_reduce_input_lag);
     fprintf(f, "smooth_moves=%d\nwhip_moving=%d\nair_speed_b=%d\nfast_crawl=%d\nsmooth_forms=%d\n", s_smooth_moves,
             s_whip_moving, s_air_speed_b, s_fast_crawl, s_smooth_forms);
     fprintf(f, "easy_dance=%d\nquick_steps=%d\ntransform_invincible=%d\n", s_easy_dance, s_quick_steps,
             s_transform_invincible);
+    fprintf(f, "instant_text=%d\n", s_instant_text);
     fclose(f);
 }
 
@@ -219,6 +230,11 @@ void shantae_set_transform_invincible(int on) {
     load_settings(); s_transform_invincible = on != 0; save_settings();
 }
 
+int shantae_instant_text(void) { load_settings(); return s_instant_text; }
+void shantae_set_instant_text(int on) {
+    load_settings(); s_instant_text = on != 0; save_settings();
+}
+
 int shantae_remove_slowdown(void) { load_settings(); return s_remove_slowdown; }
 void shantae_set_remove_slowdown(int on) {
     load_settings(); s_remove_slowdown = on != 0; save_settings();
@@ -234,7 +250,8 @@ void shantae_set_reduce_input_lag(int on) {
  * ends means the logic has overrun, and the handler would skip this VBlank --
  * a lag frame, seen as slowdown. Holding the frame there lets it finish. */
 static int shantae_frame_unfinished(GBContext *ctx) {
-    return s_remove_slowdown && ctx->hram[0x0f] == 0;
+    /* So is a frame "Instant text" runs a text out in (dialogue.c). */
+    return (s_remove_slowdown || shantae_text_running()) && ctx->hram[0x0f] == 0;
 }
 
 int shantae_expanded_view(void) { load_settings(); return s_expanded_view; }
@@ -269,6 +286,16 @@ void shantae_set_room_zoom(int mode) {
     load_settings();
     s_room_zoom = clamp_int(mode, SHANTAE_ROOM_ZOOM_OFF, SHANTAE_ROOM_ZOOM_WHOLE);
     save_settings();
+}
+int shantae_ui_scale(void) { load_settings(); return s_ui_scale; }
+void shantae_set_ui_scale(int scale) {
+    load_settings();
+    s_ui_scale = clamp_int(scale, SHANTAE_UI_AUTO, SHANTAE_UI_MAX_SCALE);
+    save_settings();
+}
+int shantae_dialogue_lift(void) { load_settings(); return s_dialogue_lift; }
+void shantae_set_dialogue_lift(int on) {
+    load_settings(); s_dialogue_lift = on != 0; save_settings();
 }
 
 int shantae_gba_enhanced(void) {
@@ -560,6 +587,9 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     if (bank == 0x1A && shantae_view_imm(ctx, bank, pc, orig, &value)) return value;
     /* "Dancing": the dance routine and its script's native calls. */
     if (bank == 0x0E && shantae_dance_imm(ctx, pc, orig, &value)) return value;
+    /* "Instant text": a slot's timer in the script pass, and its step on. */
+    if (bank == 0 && shantae_text_imm(ctx, pc, orig, &value)) return value;
+    if (bank == 0 && pc == SCRIPTS_NEXT_SLOT_PC && orig == 0x7E && shantae_text_again(ctx)) return 0x00;
     if (bank == 0 && orig == 0x03 && (pc == MOVES_PROLOGUE_PC || pc == SCRIPTS_PROLOGUE_PC)) shantae_moves_tick(ctx);
     /* Match the original byte too: the generator also emits HALT-bug copies of
      * these instructions, which read the opcode as the operand. */
@@ -568,6 +598,7 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     } else if (bank == 0 && pc == SPRITE_HDMA_PC && orig == 0xCF && sprite_lag_after_dma(ctx)) {
         return 0x4F;   /* general DMA: the graphics are in VRAM before the picture */
     } else if (bank == 0 && pc == SCRIPTS_PROLOGUE_PC && orig == 0x03) {
+        shantae_text_pass(ctx);
         note_player_move(ctx);
         shantae_forms_script_pass(ctx);
     } else if (bank == 0 && pc == SCRIPTS_NEXT_SLOT_PC && orig == 0x7E) {

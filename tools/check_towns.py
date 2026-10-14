@@ -1,29 +1,32 @@
 """Every town with the expanded view against the original, frame for frame.
 
-Towns keep the original picture, object activation and object table
-(docs/expanded-view.md), so with the view on they must play exactly as without
-it. From a state saved on the debug scene grid with the cursor on row N (its
-first five columns are Scuttle Town, Water Town, Oasis Town, the Zombie Caravan
-and Bandit Town), each town is loaded and its loop is walked once without the
-view to find the doors: where a door's label shows (CBD6, with the player's x
-at CBDC). Then an expanded and an original instance run each route side by
-side:
+Towns are presented wide but keep the original object activation and object
+table (docs/expanded-view.md), so with the view on they must play exactly as
+without it. From a state saved on the debug scene grid (its cursor, C389, is
+set to row N, whose first five columns are Scuttle Town, Water Town, Oasis
+Town, the Zombie Caravan and Bandit Town), each town is loaded and its loop is
+walked once without the view to find the doors: where a door's label shows
+(CBD6, with the player's x at CBDC). Then an expanded and an original instance
+run each route side by side:
 
 - the whole loop both ways, walking and running (A held);
 - for every door, walking there from the town's start, Up, 240 frames inside,
   and walking left, the way out of the Firefly Shrine and others (a building
   whose way out is elsewhere is left inside), then 240 frames more.
 
-Until the town is left, the presented picture, OAM, HRAM, WRAM C000-CEFF (the
-stack below CFFF keeps stale frames) and the live object slots must be
-identical at every frame, and the town must never be presented or activated
-expanded, nor have more than 32 slots once its map is loaded. A shop or house
-is a room the view does present, with the grown table: the frame each leaves
-the town must be the same, and from there the rooms and cameras each goes
-through (a load there may end a frame apart) and where each ends, door label
-included; back in the town, it must still be native. Remove slowdown is off in
-both: with the view a screen load may hold for more frames (extras.c), which
-only moves the frame a load ends on.
+Until the town is left, OAM, HRAM, WRAM C000-CEFF (the stack below CFFF keeps
+stale frames) and the live object slots must be identical at every frame, and
+so must the original picture and the part of the expanded one that shows it:
+the world above the window (WY) at the middle of the picture and the name
+panel at its bottom, both centered across (a wide picture is composed at the
+next present, so its screenshot is a frame behind). After its first frames the town
+must be presented wide, never activated expanded, and keep 32 slots once its
+map is loaded. A shop or house is a room the view also presents, with the
+grown table: the frame each leaves the town must be the same, and from there
+the rooms and cameras each goes through (a load there may end a frame apart)
+and where each ends, door label included. Remove slowdown is off in both: with
+the view a screen load may hold for more frames (extras.c), which only moves
+the frame a load ends on.
 Isolated settings and saves; the grid state is not modified.
 """
 import argparse
@@ -39,6 +42,12 @@ from view_probe import Debug, ROOT
 
 TOWN_MAP = "679b"   # C9F9/C9FA
 SLOT_SIZE = 0x7E
+GRID_CURSOR = 0xC389   # the grid's entries in reading order
+ROW_N = 27             # rows I, L, T, W, D and F hold 4, 5, 5, 2, 6 and 5
+# The view gives the original picture's top 24 lines the colors the rest of
+# the frame has during a fade (the palettes reach them late, 01:5E0B; see
+# PALETTE_UPLOAD_LINES in expanded_view.c): the pictures are compared below.
+SETTLED = 24 * 160 * 3
 
 
 def step(client, frames):
@@ -49,11 +58,47 @@ def step(client, frames):
 
 def town_route(town):
     """From the grid: the cursor to column `town` of row N, A, and the fade in."""
-    return ["-:5"] + ["R:2", "-:4"] * town + ["A:2", "-:180"]
+    return ["-:5", f"cursor:{ROW_N + town}", "A:2", "-:180"]
+
+
+def frames_of(route):
+    return sum(int(p.split(":")[1]) for p in route if not p.startswith("cursor:"))
+
+
+def ppm(path):
+    """(width, height, RGB bytes) of the runtime's screenshot."""
+    data = Path(path).read_bytes()
+    fields, at = [], 0
+    while len(fields) < 4:   # P6, width, height, 255, each followed by one whitespace byte
+        end = at
+        while data[end] not in b" \t\r\n":
+            end += 1
+        if end > at:
+            fields.append(data[at:end])
+        at = end + 1
+    assert fields[0] == b"P6" and fields[3] == b"255", path
+    return int(fields[1]), int(fields[2]), data[at:]
+
+
+def original_part(picture, wy, at):
+    """The original 160 x 144 picture inside a presented one: the world above
+    the window where the view put it (`native` in shantae_view_info: the town's
+    art is laid out on its panel, 12 rows of it above the camera's top), the
+    window (from WY) centered at the bottom (expanded_view.c, render and
+    window_strip)."""
+    width, height, pixels = picture
+    if (width, height) == (160, 144):
+        return pixels
+    (left, top), split = at, min(max(wy, 0), 144)
+    rows = [pixels[((top + y) * width + left) * 3:((top + y) * width + left + 160) * 3] for y in range(split)]
+    rows += [pixels[((height - 144 + y) * width + left) * 3:((height - 144 + y) * width + left + 160) * 3]
+             for y in range(split, 144)]
+    return b"".join(rows)
 
 
 def run(args, route, expanded, port, shot, full=True):
-    """Play `route` (parts "buttons:frames") from the grid state; one record a frame."""
+    """Play `route` (parts "buttons:frames", or "cursor:N" to set the grid's
+    cursor) from the grid state; one record a frame."""
     records = []
     with tempfile.TemporaryDirectory(prefix="shantae-towns-", ignore_cleanup_errors=True) as state:
         Path(state, "rom.cfg").write_text(str(ROOT / "roms/shantae.gbc") + "\n")
@@ -83,6 +128,9 @@ def run(args, route, expanded, port, shot, full=True):
                 n = 0
                 for part in route:
                     buttons, frames = part.split(":")
+                    if buttons == "cursor":
+                        c.command("poke", addr=hex(GRID_CURSOR), hex=f"{int(frames):02x}")
+                        continue
                     c.command("set_input", buttons=buttons)
                     for _ in range(int(frames)):
                         step(c, 1)
@@ -94,11 +142,16 @@ def run(args, route, expanded, port, shot, full=True):
                                  label=wram[0xBD6], player_x=wram[0xBDC] | wram[0xBDD] << 8)
                         if full:
                             c.command("screenshot", path=shot)
+                            lcd = c.command("ppu_state")
                             table = bytes.fromhex(c.peek(0xD000, 32 * SLOT_SIZE, wram_bank=3))
                             view = c.command("shantae_view_info")
                             for _ in range(view["count"]):
                                 c.read()
-                            r.update(picture=Path(shot).read_bytes(), oam=bytes.fromhex(c.peek(0xFE00, 160)),
+                            picture = ppm(shot)
+                            window = int(lcd["LCDC"], 16) & 0x20 and lcd["WX"] == 7
+                            r.update(picture=picture, size=picture[:2],
+                                     shown=original_part(picture, lcd["WY"] if window else 144, view["native"]),
+                                     oam=bytes.fromhex(c.peek(0xFE00, 160)),
                                      hram=hram, wram=wram[:0xF00], view=view,
                                      slots=b"".join(table[i * SLOT_SIZE:(i + 1) * SLOT_SIZE - 2]
                                                     for i in range(32) if table[i * SLOT_SIZE] != 0xFF))
@@ -115,7 +168,7 @@ def run(args, route, expanded, port, shot, full=True):
 def doors(args, town, port):
     """Label -> [first, last] player x (mod 640) and the frame of walking Right it is centred on."""
     base = town_route(town)
-    start = sum(int(p.split(":")[1]) for p in base)
+    start = frames_of(base)
     walk = run(args, base + ["R:700"], False, port, None, full=False)[start:]
     found = {}
     for r in walk:
@@ -154,7 +207,7 @@ def compare(args, tag, route, port):
     from there the two must go through the same rooms at the same cameras, a
     load may end a frame apart, and they must end in the same room, at the
     same camera, with the same door label. The town is native throughout."""
-    shots = [str(args.out / f"{tag}-{name}.png") for name in ("original", "expanded")]
+    shots = [str(args.out / f"{tag}-{name}.ppm") for name in ("original", "expanded")]
     result = {}
     threads = [threading.Thread(target=lambda e: result.__setitem__(e, run(args, route, e, port + e, shots[e])),
                                 args=(e,)) for e in (0, 1)]
@@ -169,31 +222,45 @@ def compare(args, tag, route, port):
     # Frames in the town in a row: the picture the view reports is the last one
     # presented, a frame behind, and the room is set up before its map load
     # builds the table (three frames before, coming out of a shop).
-    in_town = 0
-    for a, b in zip(result[0], result[1]):
+    in_town = wide = 0
+    expanded = result[1]
+    for i, (a, b) in enumerate(zip(result[0], expanded)):
         view = b["view"]
         in_town = in_town + 1 if view["town"] else 0
         entered = entered or (a["view"]["town"] and view["town"])
         if entered and left is None and not (a["view"]["town"] and view["town"]):
             left = a["n"]
-        if in_town and (view["activated"] or (in_town > 1 and view["expanded"]) or (in_town > 30 and view["slots"] > 32)):
-            differ = ["town presented, activated or given slots expanded"]
+        # The wide picture is composed at the next present, so the screenshot
+        # taken after a frame holds the one before it; the original picture
+        # (either instance's) is the frame just drawn. A frame whose wide
+        # picture was never captured (the last, or the next one native) has
+        # only its state compared.
+        nxt = expanded[i + 1] if i + 1 < len(expanded) else None
+        shown = (b["shown"] if b["size"] == (160, 144) else
+                 nxt["shown"] if nxt and nxt["size"] != (160, 144) else a["shown"])
+        if in_town and (view["activated"] or (in_town > 30 and view["slots"] > 32)):
+            differ = ["town activated or given slots expanded"]
+        elif in_town > 10 and left is None and b["size"] == (160, 144) and any(b["picture"][2]):
+            differ = ["town not presented wide"]   # black frames (loads, fades) may be either
         elif left is None:
-            differ = [k for k in ("picture", "oam", "hram", "wram", "slots") if a[k] != b[k]]
+            differ = [k for k in ("oam", "hram", "wram", "slots") if a[k] != b[k]]
+            differ += ["shown"] if a["shown"][SETTLED:] != shown[SETTLED:] else []
         elif left == a["n"] and a["view"]["town"] != view["town"]:
             differ = ["left the town on different frames"]
         else:
             differ = []
+        wide += in_town > 0 and left is None and b["size"] != (160, 144)
         if differ:
-            (args.out / f"{tag}-{a['n']:05d}-original.png").write_bytes(a["picture"])
-            (args.out / f"{tag}-{a['n']:05d}-expanded.png").write_bytes(b["picture"])
+            for name, r in (("original", a), ("expanded", b)):
+                width, height, pixels = r["picture"]
+                (args.out / f"{tag}-{a['n']:05d}-{name}.ppm").write_bytes(b"P6\n%d %d\n255\n" % (width, height) + pixels)
             return f"{tag}: FAILED, frame {a['n']} differs ({', '.join(differ)})"
     for shot in shots:
         Path(shot).unlink(missing_ok=True)
     if not entered:
         return f"{tag}: FAILED, never reached the town"
     if left is None:
-        return f"{tag}: {len(result[0])} frames identical"
+        return f"{tag}: {len(result[0])} frames identical, {wide} of them presented wide"
     original = rooms_of(result[0][left - 1:])
     expanded = rooms_of(result[1][left - 1:])
     if [r[0] for r in original] != [r[0] for r in expanded]:
@@ -203,8 +270,8 @@ def compare(args, tag, route, port):
         return f"{tag}: FAILED, the ends differ: {a['map']} {a['camera']} label {a['label']} / {b['map']} {b['camera']} label {b['label']}"
     inside = max((r for r in original if not r[0][2]), key=lambda r: r[1])[0]
     back = f", then back in town at {a['camera']} with label {a['label']}" if a["view"]["town"] else ""
-    return (f"{tag}: identical to frame {left - 1}; both leave the town at frame {left} for map {inside[0]} at "
-            f"{inside[1]}{back}")
+    return (f"{tag}: identical to frame {left - 1} ({wide} frames presented wide); both leave the town at frame "
+            f"{left} for map {inside[0]} at {inside[1]}{back}")
 
 
 def check_town(args, town):

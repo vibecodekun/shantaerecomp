@@ -1,13 +1,13 @@
 /*
  * launcher_options.c -- Shantae's options on the recomp-ui launcher's Mods page.
  *
- * Six built-in features: "GBA Enhanced mode" with a Colors choice,
+ * Seven built-in features: "GBA Enhanced mode" with a Colors choice,
  * "Expanded view" with an aspect ratio (or Adaptive, filling the screen), a
- * width and height in pixels and the scale of the original view it falls back
- * to, "Remove slowdown", "Reduce input lag", "Smoother movement" with what
- * a whip does on the move, the air speed, the crawl and the transformations,
- * and "Easier dancing" with the dance steps and invincibility after
- * transforming.
+ * width and height in pixels, the scale of the original view it falls back
+ * to, the room zoom and the bottom UI, "Remove slowdown", "Reduce input lag",
+ * "Smoother movement" with what a whip does on the move, the air speed, the
+ * crawl and the transformations, "Easier dancing" with the dance steps and
+ * invincibility after transforming, and "Instant text".
  * Values are stored in shantae.ini through the accessors in extras.c and take
  * effect when the game boots, so there is nothing to stage or commit.
  */
@@ -17,6 +17,7 @@
 #include "moveset.h"
 #include "forms.h"
 #include "dance.h"
+#include "dialogue.h"
 #include "gb_custom_view.h"
 
 #include <SDL.h>
@@ -51,6 +52,14 @@ static const char *const room_zooms[][2] = {
     {"fill", "Fill the screen"},
     {"whole", "Whole room"},
 };
+#define OPTION_UI "ui_size"
+#define UI_CHOICES 9   /* auto, then 1x to 8x */
+#define OPTION_LIFT "dialogue"
+static const char *const lifts[][2] = {
+    {"cover", "Covers the floor, as in the original"},
+    {"lift", "Raises the world: the floor stays in view"},
+};
+#define FEATURE_TEXT "instant_text"
 #define FEATURE_MOVES "smooth_moves"
 #define OPTION_WHIP "whip"
 #define OPTION_AIR "air_speed"
@@ -156,6 +165,10 @@ static int is_dance(const char *package_id, const char *feature_id) {
     return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
            strcmp(feature_id, FEATURE_DANCE) == 0;
 }
+static int is_text(const char *package_id, const char *feature_id) {
+    return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
+           strcmp(feature_id, FEATURE_TEXT) == 0;
+}
 
 /* ---- package surface: a single built-in package the Features view owns ---- */
 
@@ -182,13 +195,31 @@ static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
 
 static int feature_count(void *ctx) {
     (void)ctx;
-    return 6;
+    return 7;
 }
 
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
     (void)ctx;
-    if (index < 0 || index > 5 || !out) return 0;
+    if (index < 0 || index > 6 || !out) return 0;
     memset(out, 0, sizeof(*out));
+    if (index == 6) {
+        snprintf(out->id, sizeof(out->id), "%s", FEATURE_TEXT);
+        snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
+        snprintf(out->package_version, sizeof(out->package_version), "1.0");
+        snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
+        snprintf(out->name, sizeof(out->name), "Instant text");
+        snprintf(out->description, sizeof(out->description),
+                 "Press A while dialogue is printing and it runs to the end at once, every page "
+                 "of it, as holding B would a letter at a time; B then carries on. An A at a page "
+                 "waiting for B goes on from there the same way. Nothing else changes: B still "
+                 "speeds text up and turns pages, and A does nothing else in dialogue. Off plays "
+                 "as the original.");
+        snprintf(out->group, sizeof(out->group), "Gameplay");
+        snprintf(out->status, sizeof(out->status), "%s",
+                 shantae_instant_text() ? "On: A runs the text to its end" : "Off: the original text speed");
+        out->enabled = shantae_instant_text();
+        return 1;
+    }
     if (index == 5) {
         snprintf(out->id, sizeof(out->id), "%s", FEATURE_DANCE);
         snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
@@ -305,7 +336,7 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
         else
             snprintf(out->status, sizeof(out->status), "On: %d x %d world view (%s)", width, height, aspect);
         out->enabled = shantae_expanded_view();
-        out->option_count = 5;
+        out->option_count = 7;
         return 1;
     }
     snprintf(out->id, sizeof(out->id), "%s", FEATURE_ID);
@@ -342,8 +373,9 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->description, sizeof(out->description),
                  "Adaptive fills the whole screen or window, whatever its shape, and follows it "
                  "when the window is resized. A ratio sets the width for that shape at the "
-                 "current height; NES 16:15 at 240 tall is 256 x 240. Changing the width or "
-                 "height afterwards makes the shape custom.");
+                 "current height; NES 16:15 at 240 tall is 256 x 240, and 16:9 at 144 tall (the "
+                 "original's height) is 256 x 144, the original's zoom with more to either side. "
+                 "Changing the width or height afterwards makes the shape custom.");
         snprintf(out->value, sizeof(out->value), "%s",
                  adaptive ? ASPECT_ADAPTIVE : a ? a->id : ASPECT_CUSTOM);
         snprintf(out->default_value, sizeof(out->default_value), "16:15");
@@ -385,8 +417,9 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
                      SHANTAE_VIEW_MIN_HEIGHT, SHANTAE_VIEW_MAX_HEIGHT);
         else
             snprintf(out->description, sizeof(out->description),
-                     "Game pixels tall, %d to %d, including the 16-pixel status bar. The original "
-                     "screen is 144 tall. For sharp pixels with pixel-perfect scaling, pick a height "
+                     "Game pixels tall, %d to %d, including the 16-pixel status bar. 144, the "
+                     "original screen's height, keeps its zoom and only adds to the sides, dialogue "
+                     "and towns included. For sharp pixels with pixel-perfect scaling, pick a height "
                      "that divides your screen height evenly: 240 for 720p, 1440p and 4K; 270 for "
                      "1080p and 4K; 360 for all four.",
                      SHANTAE_VIEW_MIN_HEIGHT, SHANTAE_VIEW_MAX_HEIGHT);
@@ -401,7 +434,7 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->group, sizeof(out->group), "Original view");
         snprintf(out->label, sizeof(out->label), "Original view scale");
         snprintf(out->description, sizeof(out->description),
-                 "Menus, the inventory, dialogue and rooms of a single screen show the original "
+                 "Menus, the inventory and rooms of a single screen show the original "
                  "160 x 144 picture. By default it is presented on its own, through the shader, "
                  "and scaled to the screen like the game without the expanded view (Pixel "
                  "Perfect gives the largest whole scale: 7x on a 1080p screen). Pick another "
@@ -416,17 +449,47 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->group, sizeof(out->group), "Original view");
         snprintf(out->label, sizeof(out->label), "Room zoom");
         snprintf(out->description, sizeof(out->description),
-                 "Rooms smaller than the view, from a corridor a screen tall to an arena the "
-                 "camera locks to, would sit in a field of black at the view's pixel size. Fill "
-                 "zooms in until the room fills the screen (whole steps with Pixel Perfect), "
-                 "scrolling along the side that no longer fits; Whole room zooms only as far as "
-                 "keeps every side that fits in view. Never closer than the original screen. "
-                 "Zooms snap while the screen is black between rooms and ease when a room's "
-                 "limits change in play.");
+                 "Rooms smaller than the view would sit in black at the view's pixel size. Fill "
+                 "zooms in until the room fills the screen (whole steps with Pixel Perfect), the "
+                 "rest scrolling, and fills it with a view of another shape too (NES 16:15 is "
+                 "shown at its width). Whole room zooms only as far as keeps every side that "
+                 "fits in view. The room's floor stays above the bottom UI. Never closer than "
+                 "the original screen. Zooms snap between rooms and ease when a room's limits "
+                 "change in play.");
         snprintf(out->value, sizeof(out->value), "%s", room_zooms[shantae_room_zoom()][0]);
         snprintf(out->default_value, sizeof(out->default_value), "fill");
         out->type = RECOMP_MOD_OPTION_CHOICE;
         out->choice_count = 3;
+    } else if (index == 5) {
+        snprintf(out->id, sizeof(out->id), OPTION_UI);
+        snprintf(out->group, sizeof(out->group), "Bottom UI");
+        snprintf(out->label, sizeof(out->label), "Bottom UI size");
+        snprintf(out->description, sizeof(out->description),
+                 "The status bar, dialogue boxes and the towns' name panels. 1x draws them with "
+                 "the view's own pixels; a multiple that many times larger, and Auto as large as "
+                 "in the original picture (at 1920 x 1080 on a 1080p screen, 7.5 times). Their "
+                 "size on screen stays the same when a room zooms in. Other sizes are drawn "
+                 "through the shader on their own, and the world stays above them.");
+        const int ui = shantae_ui_scale();
+        if (ui == SHANTAE_UI_AUTO) snprintf(out->value, sizeof(out->value), "auto");
+        else snprintf(out->value, sizeof(out->value), "%d", ui);
+        snprintf(out->default_value, sizeof(out->default_value), "1");
+        out->type = RECOMP_MOD_OPTION_CHOICE;
+        out->choice_count = UI_CHOICES;
+    } else if (index == 6) {
+        snprintf(out->id, sizeof(out->id), OPTION_LIFT);
+        snprintf(out->group, sizeof(out->group), "Bottom UI");
+        snprintf(out->label, sizeof(out->label), "Dialogue box");
+        snprintf(out->description, sizeof(out->description),
+                 "A dialogue box is taller than the status bar, and its black runs across the "
+                 "whole view: where the room's floor shows right above the status bar (standing "
+                 "at the bottom of a large area) it would cover the floor and Shantae. Raise "
+                 "eases the world up until the floor clears the box, and back down when it "
+                 "closes; Cover leaves the world where it is, as the original does.");
+        snprintf(out->value, sizeof(out->value), "%s", lifts[shantae_dialogue_lift() != 0][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "lift");
+        out->type = RECOMP_MOD_OPTION_CHOICE;
+        out->choice_count = 2;
     } else {
         return 0;
     }
@@ -515,6 +578,25 @@ static int view_set_option(const char *option_id, const char *value) {
         }
         snprintf(s_error, sizeof(s_error), "Unknown room zoom '%s'.", value);
         return 0;
+    }
+    if (strcmp(option_id, OPTION_LIFT) == 0) {
+        for (int i = 0; i < 2; ++i) {
+            if (strcmp(value, lifts[i][0]) == 0) {
+                shantae_set_dialogue_lift(i);
+                return 1;
+            }
+        }
+        snprintf(s_error, sizeof(s_error), "Unknown dialogue box setting '%s'.", value);
+        return 0;
+    }
+    if (strcmp(option_id, OPTION_UI) == 0) {
+        const int scale = strcmp(value, "auto") == 0 ? SHANTAE_UI_AUTO : atoi(value);
+        if (scale < SHANTAE_UI_AUTO || scale >= UI_CHOICES || (scale == SHANTAE_UI_AUTO && strcmp(value, "auto"))) {
+            snprintf(s_error, sizeof(s_error), "Unknown bottom UI size '%s'.", value);
+            return 0;
+        }
+        shantae_set_ui_scale(scale);
+        return 1;
     }
     if (strcmp(option_id, OPTION_ASPECT) == 0) {
         if (strcmp(value, ASPECT_ADAPTIVE) == 0) {
@@ -739,6 +821,25 @@ static int feature_choice_get(void *ctx, const char *package_id, const char *fea
         snprintf(out->label, sizeof(out->label), "%s", room_zooms[index][1]);
         return 1;
     }
+    if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_LIFT) == 0 && out) {
+        if (index < 0 || index > 1) return 0;
+        memset(out, 0, sizeof(*out));
+        snprintf(out->value, sizeof(out->value), "%s", lifts[index][0]);
+        snprintf(out->label, sizeof(out->label), "%s", lifts[index][1]);
+        return 1;
+    }
+    if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_UI) == 0 && out) {
+        if (index < 0 || index >= UI_CHOICES) return 0;
+        memset(out, 0, sizeof(*out));
+        if (index == 0) {
+            snprintf(out->value, sizeof(out->value), "auto");
+            snprintf(out->label, sizeof(out->label), "Auto: as in the original");
+        } else {
+            snprintf(out->value, sizeof(out->value), "%d", index);
+            snprintf(out->label, sizeof(out->label), index == 1 ? "1x: the view's pixels" : "%dx", index);
+        }
+        return 1;
+    }
     if (!is_feature(package_id, feature_id) || !option_id ||
         strcmp(option_id, OPTION_COLORS) != 0 || !out) {
         return 0;
@@ -777,6 +878,10 @@ static int feature_enable(void *ctx, const char *package_id, const char *feature
     }
     if (is_dance(package_id, feature_id)) {
         shantae_set_easy_dance(enabled);
+        return 1;
+    }
+    if (is_text(package_id, feature_id)) {
+        shantae_set_instant_text(enabled);
         return 1;
     }
     if (!is_feature(package_id, feature_id)) return 0;

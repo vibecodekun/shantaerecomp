@@ -26,8 +26,9 @@ the next launch; while it is on, size changes in the Esc menu apply on the next
 frame. Loading existing save states is supported; host presentation caches are
 cleared and rebuilt after loading.
 
-**Original view.** Menus, the inventory, dialogue and one-screen rooms show
-the original 160×144 picture (see the scene gate and one-screen rooms below).
+**Original view.** Menus, the inventory and one-screen rooms show the original
+160×144 picture (see the scene gate and one-screen rooms below). Dialogue
+does not: it stays in the view (dialogue in the view, below).
 By default it is presented on its own, like the game without the view: the
 160×144 picture goes through the shader chain and is scaled to the window by
 the Scaling Mode (Pixel Perfect on a 1920×1080 screen is 7×, 1120×1008), so a
@@ -46,20 +47,30 @@ last frame's choice, and the shader history is cleared at each switch.
 
 **Room zoom.** A room smaller than the view, from a corridor one screen tall
 to an arena the camera locks to during a fight, would sit at the view's pixel
-size in a field of black. With **Fill the screen** (the default) the view
-shrinks to the part worth showing and the window scales it up until the room
-fills the screen: to the nearest whole scale with Pixel Perfect, the room
-scrolling along a side that no longer fits. **Whole room** zooms only as far as
-keeps every side that fits whole (whole scales round down); **Off** is the
-view as it is. The zoom never goes past the original screen (the picture stays
-at least 160×144) nor below the view's own scale, and never shows more than the
-view. At 1920×1080 on a 1080p screen: the 192-wide hold of Risky's ship and
-the 319×128 corridors go to 7× (274×154 of the world), the 511×255 rooms and
-the 2047×255 corridor to 4× (480×270), the opening area (3071×471) and other
-corridors about 500 tall to 2× (960×540); a 3071×767 room (1.38×) stays at 1×
-with Pixel Perfect and fills the height exactly with Aspect Fit; the water
-tower's map, whose bounds are the whole map, stays at 1×. The key is
-`room_zoom` (0 off, 1 fill, 2 whole room).
+size in a field of black. The zoom fits the room to the view's own shape, as
+large as the window holds it (the frame: a 1920×1080 view fills a 1080p
+screen, an NES 16:15 view is 1152×1080 between bars), so a zoomed room keeps
+the shape the player chose; it used to take the window's, and a small room in
+a 16:15 view was shown 16:9. What the room shows is fitted above the bottom UI
+at its size (Bottom UI size below), the room's own rows under the status bar
+beneath it, so the floor is not cut off. With **Fill the screen** (the default)
+the view shrinks to the part worth showing and the window scales it up until
+the room fills the frame: to the nearest whole scale with Pixel Perfect, the
+room scrolling along a side that no longer fits. **Whole room** zooms only as
+far as keeps every side that fits at the view's scale whole (whole scales
+round down), and not at all where no side fits: it went to the original's
+scale there, so a large area zoomed all the way in. **Off** is the view as it
+is. The zoom never goes past the original screen (the picture stays at least
+160×144, but for a town's: see Towns) nor below the view's own scale, and
+never shows more than the view. At 1920×1080 on a 1080p screen with the bottom
+UI at 1x: the 192-wide hold of Risky's ship and the 319×128 corridors go to 7×
+(274×154 of the world), the 511×255 rooms and the 2047×255 corridor to 4×
+(480×270; Whole room too), the opening area (3071×471) and other corridors
+about 500 tall to 2× (960×540); a 3071×767 room (1.39×) stays at 1× with Pixel
+Perfect and fills the height exactly with Aspect Fit; the water tower's map,
+whose bounds are the whole map, stays at 1×. In an NES view a 227×199 arena
+fills the 16:15 frame at 5.27× (218×204). The key is `room_zoom` (0 off, 1
+fill, 2 whole room).
 
 The zoom follows the room bounds C9DB–C9E2 the frame was drawn with (a room
 box of the camera range plus 160×128, with the status bar). Rooms are entered
@@ -134,6 +145,64 @@ letterbox bar the width of the view, with whatever crosses it in the middle,
 instead of stopping at the original screen's edge. The status bar is mostly
 black, so it keeps black beside it.
 
+**Dialogue in the view.** A dialogue box is a window across the screen from
+line 104 (WX 7, WY 104 in every debug-grid scene; a town's name panel is the
+same window). It stays at the bottom of the view like the status bar, with
+the world continuing above it and its background (black) beside it, so the
+picture keeps its size through dialogue. It used to switch to the original
+picture, which zoomed in from the room's scale: the user's state1 of
+2026-10-13 (1920×1080, Fill) shows a room at 1.38× on a 1080p screen, and
+the box took the screen to 7.5× and back. The room zoom does not change while
+a dialogue box is up, and the room is the status bar's (the lines it had, kept
+while the box stands in for it), so the room does not move by the bar's rows
+either; the world rises above the box instead (Dialogue box below). Of the 68 debug-grid scenes at 256×144, every dialogue
+over a room the view widens, towns included, stays wide; the others are over
+one-screen rooms and story pictures, which keep the original view.
+
+**Bottom UI size.** The status bar, a dialogue box, a town's name panel and
+the intro's strip are the bottom UI, and `ui_scale` sets its size: 1 (the
+default) draws it with the view's own pixels, like the world; 2 to 16 that
+many view pixels for each of its pixels; 0 (Auto) as large on screen as the
+original picture would show it, whatever the view's size (7.5 window pixels
+on a 1080p screen in Aspect Fit, 7 with Pixel Perfect; the Original view's
+whole scale when one is chosen; inside the view, the view's own). That is its
+size on screen whatever the room zoom does: with the size at 2x of a
+1920×1080 view on a 1080p screen, a town zoomed to 7.5× drew its name panel 12
+window pixels a pixel, 480 tall, where the status bar elsewhere is 2. It is
+never wider than the view on screen, nor a dialogue box taller (2× of 256×144
+on that screen is 12 window pixels, not 15). Anything but the picture's own
+pixels is a layer the window draws over the bottom of the picture
+(`gb_custom_layer`), centered across, at its own scale and through a
+librashader chain of its own (the running preset again, made the first time a
+layer is drawn; presets that keep past frames keep each picture's): a preset
+that works per game pixel, such as an LCD grid or scanlines, works per UI
+pixel, not per picture pixel inside it. The picture keeps the rows under it,
+in the UI's background color, and the world is laid out above it with the
+room's 16 rows under the status bar beneath it (`layout_height`; activation
+shares it), so the room's floor stays right above it. Without a window that
+draws layers (headless runs, a preset that draws a bezel over the whole
+window) the view draws the UI itself, as many whole times over as fit, at
+least once.
+
+**Dialogue box.** A dialogue box is 40 lines to the status bar's 16, and its
+black runs across the whole view, so standing at the bottom of a large area
+(the camera at the room's bottom, where Shantae's floor is right above the
+status bar) or in a room the zoom fits to the picture, it covered the floor
+and Shantae across the whole width. With `dialogue_lift=1` (the default, the
+Bottom UI's **Dialogue box: Raises the world**) the world eases up, a third of
+the way each guest frame, until the room's floor clears the box, and back
+down when it closes; the rise is at most the rows the box takes beyond the
+bar's, what goes off the top is the room's own and what comes in under the
+floor is under the box. A floor below the picture raises nothing. The floor
+may be a row or two under the bar where the zoom fits a room to the window
+(the bar's rows are whole): in the user's state1 of 2026-10-13 (the mayor's
+"Stay put!", 1920×1080 at 1.37×, the bottom UI at 2x) a room one row taller
+than the space above the bar was not raised at all on the first pass, and was
+after a rewind left another zoom; the test is now the floor anywhere in the
+picture. `dialogue_lift=0` covers the floor as the original does. A town's
+panel is its status bar and raises nothing. `shantae_view_info` reports
+`lift` (rows), `ui` (window pixels per UI pixel) and `ui_rows`.
+
 Rooms are the practical limit: a view larger than its room shows the room
 centered (the opening bridge is about 3070×600, so 3840×1080 shows all of it).
 The compositor's cost grows with the pixel count. It looks each 8×8 map cell
@@ -160,8 +229,9 @@ run short the game's own spawns come first, so some distant objects come a
 little late.
 
 The runtime compositor supports independent width/height. It leaves the PPU and
-serialized hardware state at 160×144. Gameplay is expanded; menus and dialogue
-use the native picture (the original view above). The status bar stays at the bottom. Room edges
+serialized hardware state at 160×144. Gameplay is expanded; menus use the
+native picture (the original view above), and dialogue does in a view shown
+smaller than the original picture. The status bar stays at the bottom. Room edges
 clamp the expanded camera, and a room smaller than the view is centered; brief
 shake beyond native camera bounds is clipped
 safely and does not disable the expanded view.
@@ -454,18 +524,57 @@ safely and does not disable the expanded view.
   the wider activation, so nothing despawns while talking; a room that is never
   presented expanded keeps the original activation throughout. New camera bounds
   within the same map do not reset it.
-- Towns keep the original picture, activation and object table. The town
-  player (04:62CC) stays at screen x 84, and the camera wraps at 640
-  (04:641E/04:6474) past the room's own maximum (C9DD = 480). Objects near the
-  seam have spawn-record duplicates at +640 (the Firefly Shrine door at 56 and
-  695). The clamped wide window missed the duplicates, so the Firefly Shrine
-  door never existed after the wrap. The door handler (04:60B8) also compares
-  only the low byte of the player/door distance (04:60E0 `CP $10` then
-  `SBC A,D` with A = D): within 16 pixels the door's label shows (CBD6) and Up
-  enters (the player's routine becomes 04:6584). The original 320-pixel
-  retention never keeps a door 256±16 pixels away alive, but the wide one did,
-  and such a door took over the label and the Up entrance. That is an
-  original-game quirk, left as is.
+- Towns are presented wide but keep the original activation and object
+  table. The town player (04:62CC) stays at screen x 84, and the camera, the
+  player's +63, wraps at 640 past the room's own maximum (C9DD = 480):
+  walking left past 0 sets 639 (04:6469), walking right past 639 sets 0
+  (04:64BF). A town's only spawn records are its doors (object 0A:4274, one
+  for each building, its number in the first argument), which draw nothing:
+  the buildings are the map's. The records run on past 640 with copies of the
+  first doors (Water Town's at 49, 144 and 240 again at 688, 784 and 881), so
+  the original's window finds a door past the seam. The clamped wide window
+  missed the copies, so the Firefly Shrine door never existed after the wrap.
+  The door handler (04:60B8) also compares only the low byte of the
+  player/door distance (04:60E0 `CP $10` then `SBC A,D` with A = D): within
+  16 pixels the door's label shows (CBD6) and Up enters (the player's routine
+  becomes 04:6584). The original 320-pixel retention never keeps a door
+  256±16 pixels away alive, but the wide one did, and such a door took over
+  the label and the Up entrance. That is an original-game quirk, left as is,
+  and doors keep the original's reach.
+
+  The townsfolk are not spawned from records. Seven objects (callback
+  04:67E2, 04:693C while one talks; Water Town's at x 125 to 1223, 182
+  apart) live as long as the town does, each at its own place (+6D) plus a
+  town-wide offset (CBC9, 04:67EE), and the town draws them at x less twice
+  the camera on a loop of 1280 pixels (they cross the screen twice as fast as
+  the street). The sprite capture (00:1DC6) sees all seven every frame, at the
+  screen positions the town gives them, so in a wide picture they walk in
+  from either side with the original activation. The street wraps at 640 like
+  the camera (`world_tile`), so no side ends the room. The name panel is a
+  window from line 104 on every frame (the dialogue box's place; townsfolk
+  talk in it), kept at the bottom like dialogue (dialogue in the view above)
+  and sized with the rest of the bottom UI; it is the town's status bar.
+
+  The room is the town's art (`TOWN_ART`), laid out on the panel. All five
+  strips have seven rows of metatiles from the bounds' y, the street's edge in
+  an eighth (4 rows of grass or road under the panel's line, then black) and
+  the map blank below; the camera keeps 12 below the bounds' y (Water Town's
+  bounds are at 768, its camera at 780, SCY 12). The original shows the
+  camera's lines down to the panel, 104 of them; the room is the 116 rows from
+  the bounds' y to the panel's line, so the 12 above the camera show when
+  there is room and everyone's feet stay at the panel's top as in the
+  original. Laid out as the camera's own 144 lines it showed the blank map
+  under the street with a panel smaller than the original's (190 window rows of
+  black at 2x of a 1920×1080 view), and with the edge's 4 rows everyone stood
+  above the ground. The room zoom (Fill or Whole room) fills the frame above
+  the panel with the art: at 2x of a 1920×1080 view, 8.62× (222×125); with the
+  bottom UI on Auto, 6.5× (295×166) above a panel the original's size; 8×
+  with Pixel Perfect at 2x. A town is the one room the zoom takes past the
+  original screen, as long as the 104 rows the original shows fit, so its
+  picture may be fewer than 144 rows (`gb_custom_fit` may return fewer; the
+  runtime's centered native picture keeps its middle then). Towns keep the
+  original activation, which does not follow the picture. With the room zoom
+  off, a town is shown at the view's scale, in the middle of the picture.
 
   All five towns are one map, 67:9B, strips 640 wide at y 0, 768, 1120, 1376
   and 1632, loaded by 18:5C3D, 18:5FEA, 18:638B, 18:6738 and 18:6AD5 with the
@@ -477,8 +586,8 @@ safely and does not disable the expanded view.
   the map (18:71F2, 1F:4303, 1F:5111 and others, x from 248 and y 336-624), so
   leaving one that had been presented expanded widened the town too; with
   that, the user's state1 in Water Town (2026-09-26) found the Firefly Shrine's
-  label empty and Up did nothing. A town is never presented expanded, never
-  activated wider, and its map load builds the original 32 slots and 12
+  label empty and Up did nothing. A town is never activated wider, and its
+  map load builds the original 32 slots and 12
   collision nodes (object_slots.c): the grown table's own work (the scripts
   pass counting 157, the build counting 93) takes guest time, and the main
   loop spends what is left of each frame calling the random numbers (00:0852
@@ -992,25 +1101,33 @@ list). `logs/states/warp-cut.state` (scene 0A, map 5E8F, floated) is about
 The user's earlier slots are gone: the
 platform room that lagged at 426 wide (`--enemy` needs it) needs a new state.
 
-Towns (`logs/states/debug-grid.state` is the user's state2 on 2026-09-26: the
-debug scene grid with the cursor on row N, whose first five columns are the
-towns). `tools/check_towns.py` loads each, walks its loop without the view to
+Towns (`logs/states/debug-grid.state`, made by `tools/make_states.py`: the
+debug scene grid; the check sets its cursor, C389, an index into the grid's
+entries in reading order, to row N, whose first five columns are the towns).
+`tools/check_towns.py` loads each, walks its loop without the view to
 find the doors (where each label shows), and plays in an expanded and an
 original instance side by side the whole loop both ways, walking and running,
 and for every door a walk there, Up, 240 frames inside, and a walk left (the
 way out of the Firefly Shrine; a building whose way out is elsewhere keeps
-Shantae inside). Until the town is left, every frame's picture, OAM, HRAM,
-WRAM C000-CEFF (the stack below CFFF holds stale frames) and live object slots
-must be identical; the town must never be presented or activated expanded,
-nor keep more than 32 slots past its map load. Both must leave the town on the
-same frame. A shop or house is a room the view presents, with the grown
+Shantae inside). Until the town is left, every frame's OAM, HRAM, WRAM
+C000-CEFF (the stack below CFFF holds stale frames) and live object slots must
+be identical, and so must the original picture and the part of the wide one
+that shows it (the world above the name panel in the middle, the panel
+centered at the bottom; below the top 24 lines, which the view gives a fade's
+settled colors). A wide picture is composed at the next present, so the
+debug server's screenshot after a frame is the frame before it; the check
+pairs them so. After its first frames the town must be presented wide (black
+frames, loads and fades, may be either), never activated expanded, and keep
+32 slots past its map load. Both must leave the town on the same frame. A shop or house is a room the view presents, with the grown
 table, so its frames take other time and draw other random numbers: from there
 the two must go through the same rooms at the same cameras (a load may end a
 frame apart) and end in the same room, camera and door label. Remove slowdown
 is off in both, since the view lets a screen load hold for up to eight frames
 instead of two, which only moves the frame a load ends on. At 1920×1080
-(Fill, in a 1920×1080 Aspect Fit window) all 44 routes pass: the 10 loops are
-identical throughout, and each of the 34 doors (7 in Scuttle Town, Water
+(Fill, in a 1920×1080 Aspect Fit window: the towns zoom to 256×144 at 7.5×)
+all 44 routes pass: the 10 loops are identical throughout and presented wide
+on 1495-1498 of their 1587 frames (the rest the black of the load), and each
+of the 34 doors (7 in Scuttle Town, Water
 Town, Oasis Town and Bandit Town, 6 in the Zombie Caravan) is identical up to
 the frame both leave the town, for the same room. Walking left brings Shantae
 back out of 27 of them, to the same spot with the door's label; the other 7

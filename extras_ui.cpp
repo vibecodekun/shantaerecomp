@@ -11,6 +11,7 @@ extern "C" {
 #include "moveset.h"
 #include "forms.h"
 #include "dance.h"
+#include "dialogue.h"
 }
 
 extern "C" int shantae_gba_enhanced(void);
@@ -101,6 +102,13 @@ void game_draw_overlay(struct GBContext *ctx) {
     if (!dance) ImGui::EndDisabled();
 
     ImGui::Separator();
+    bool instant = shantae_instant_text() != 0;
+    if (ImGui::Checkbox("Instant text", &instant)) {
+        shantae_set_instant_text(instant ? 1 : 0);
+    }
+    ImGui::TextDisabled("A runs dialogue to its end at once; B carries on.");
+
+    ImGui::Separator();
     bool expanded = shantae_expanded_view() != 0;
     if (ImGui::Checkbox("Expanded view", &expanded)) {
         shantae_set_expanded_view(expanded ? 1 : 0);
@@ -150,6 +158,15 @@ void game_draw_overlay(struct GBContext *ctx) {
     }
     ImGui::TextDisabled("%d to %d wide, %d to %d tall. NES is 256 x 240.", SHANTAE_VIEW_MIN_WIDTH,
                         SHANTAE_VIEW_MAX_WIDTH, SHANTAE_VIEW_MIN_HEIGHT, SHANTAE_VIEW_MAX_HEIGHT);
+    // The original's height keeps its zoom; the aspect (or the shape) stays.
+    if (ImGui::Button("Original height (144)") && height != SHANTAE_VIEW_MIN_HEIGHT) {
+        int w = width, h = SHANTAE_VIEW_MIN_HEIGHT;
+        if (preset >= 0) shantae_view_aspect_size(preset, &w, &h);
+        else if (!adaptive) w = (int)((long long)width * h / height);
+        shantae_set_view_size(w, h);
+    }
+    ImGui::TextDisabled("More to either side at the original zoom, dialogue");
+    ImGui::TextDisabled("and towns too (16:9 is then 256 x 144).");
     if (running && (gb_custom_width != shown_width || gb_custom_height != shown_height))
         ImGui::TextDisabled("Showing %d x %d; this room zooms to %d x %d.", shown_width, shown_height,
                             gb_custom_width, gb_custom_height);
@@ -183,16 +200,40 @@ void game_draw_overlay(struct GBContext *ctx) {
             shantae_set_native_scaling(GB_CUSTOM_NATIVE_IN_VIEW, scale);
         ImGui::EndCombo();
     }
-    ImGui::TextDisabled("Menus, dialogue and one-screen rooms show the original");
-    ImGui::TextDisabled("160 x 144 picture, scaled and shaded on its own.");
+    ImGui::TextDisabled("Menus and one-screen rooms show the original 160 x 144");
+    ImGui::TextDisabled("picture, scaled and shaded on its own.");
     ImGui::TextDisabled("Inside the view keeps it at the view's pixel size.");
+
+    // The status bar, dialogue boxes and towns' name panels.
+    const int ui = shantae_ui_scale();
+    char ui_label[48];
+    if (ui == SHANTAE_UI_AUTO) snprintf(ui_label, sizeof(ui_label), "Auto: as in the original");
+    else snprintf(ui_label, sizeof(ui_label), ui == 1 ? "1x: the view's pixels" : "%dx", ui);
+    if (ImGui::BeginCombo("Bottom UI size", ui_label)) {
+        if (ImGui::Selectable("Auto: as in the original", ui == SHANTAE_UI_AUTO)) shantae_set_ui_scale(SHANTAE_UI_AUTO);
+        for (int n = 1; n <= 8; ++n) {
+            snprintf(ui_label, sizeof(ui_label), n == 1 ? "1x: the view's pixels" : "%dx", n);
+            if (ImGui::Selectable(ui_label, ui == n)) shantae_set_ui_scale(n);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::TextDisabled("The status bar, dialogue and towns' name panels: the");
+    ImGui::TextDisabled("view's own pixels, a multiple of them, or as large as in");
+    ImGui::TextDisabled("the original picture, the same when a room zooms in.");
+    ImGui::TextDisabled("The world stays above them.");
+    static const char *const lifts[] = {"Covers the floor, as in the original", "Raises the world: the floor stays in view"};
+    int lift = shantae_dialogue_lift() != 0;
+    if (ImGui::Combo("Dialogue box", &lift, lifts, 2)) shantae_set_dialogue_lift(lift);
+    ImGui::TextDisabled("Standing at the bottom of a large area, a dialogue");
+    ImGui::TextDisabled("box would cover the floor and Shantae.");
 
     static const char *const zooms[] = {"Off", "Fill the screen", "Whole room"};
     int room_zoom = shantae_room_zoom();
     if (ImGui::Combo("Room zoom", &room_zoom, zooms, 3)) shantae_set_room_zoom(room_zoom);
     ImGui::TextDisabled("Rooms smaller than the view zoom in instead of sitting");
     ImGui::TextDisabled("in black. Fill: until the room fills the screen, the");
-    ImGui::TextDisabled("rest scrolling. Whole room: no side that fits is cut.");
+    ImGui::TextDisabled("rest scrolling, a view of another shape too (NES 16:15");
+    ImGui::TextDisabled("at its width). Whole room: no side that fits is cut.");
     if (!expanded) ImGui::EndDisabled();
     ImGui::TextDisabled(running ? "Experimental. Size changes apply now; turning the view"
                                 : "Experimental. Takes effect on the next launch.");

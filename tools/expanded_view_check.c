@@ -11,6 +11,11 @@ int shantae_native_scaling(void) { return GB_CUSTOM_NATIVE_SCALING_MODE; }
 int shantae_native_scale(void) { return 1; }
 static int s_room_zoom = SHANTAE_ROOM_ZOOM_FILL;
 int shantae_room_zoom(void) { return s_room_zoom; }
+static int s_ui_scale = 1;
+int shantae_ui_scale(void) { return s_ui_scale; }
+static int s_dialogue_lift = 1;
+int shantae_dialogue_lift(void) { return s_dialogue_lift; }
+void shantae_text_counts(unsigned long long *texts, unsigned long long *runs) { *texts = *runs = 0; }
 void shantae_input_lag_counts(unsigned long long *fresh, unsigned long long *original,
                               unsigned long long *early_moves, unsigned long long *replays) {
     *fresh = *original = *early_moves = *replays = 0;
@@ -283,7 +288,7 @@ int main(void) {
     /* The intro's strip (a window from line 136) stays at the bottom and its
      * background spans the view, with what crosses it kept in the middle;
      * without a color covering most of it, black is beside it. */
-    window_y = 136; gb_custom_height = 240;
+    window_y = 136; gb_custom_height = 240; status_lines = 8;
     for (int i = 136 * 160; i < 144 * 160; ++i) native[i] = 0xff000041;
     for (int x = 8; x < 24; ++x) native[139 * 160 + x] = 0xffffffff;
     CHECK(render(ctx, out + 1, 256, native));
@@ -292,7 +297,137 @@ int main(void) {
     for (int i = 136 * 160; i < 144 * 160; ++i) native[i] = 0xff000000u | (i % 3) * 0x40;
     CHECK(render(ctx, out + 1, 256, native));
     CHECK(out[1 + 232 * 256] == 0xff000000 && out[1 + 232 * 256 + 48] == 0xff000040);
-    for (int i = 128 * 160; i < 144 * 160; ++i) native[i] = 0xff123456;
+    /* A window across the screen from line 104 (a dialogue box, a town's name
+     * panel) stays at the bottom of the picture, with the world above it and
+     * its background (black) beside it: at the world's pixels (the bottom UI
+     * at 1x), or without layers (headless) as many whole times over as the
+     * bottom UI's rows a line and the picture allow. */
+    window_y = 104; ui_rows = 1; gb_custom_layers = 0; status_lines = 16; s_dialogue_lift = 0;
+    for (int i = 0; i < 104 * 160; ++i) native[i] = 0xff123456;
+    for (int i = 104 * 160; i < 144 * 160; ++i) native[i] = i % 160 < 4 ? 0xffff0000 : 0xff000000;
+    gb_custom_height = 144;
+    CHECK(render(ctx, out + 1, 256, native));
+    /* (The camera is 4 pixels up and left of the room, as the shake above
+     * left it, so the world ends at row 99.) */
+    CHECK(out[1 + 99 * 256 + 48] == 0xff123456 && out[1 + 104 * 256 + 48] == 0xffff0000);
+    CHECK(out[1 + 99 * 256 + 10] != 0xff000000 && out[1 + 120 * 256 + 10] == 0xff000000);
+    CHECK(out[1 + 143 * 256 + 255] == 0xff000000);
+    gb_custom_height = 240;
+    ui_rows = 3.4;   /* no room for more than one in 256 x 240 */
+    CHECK(render(ctx, out + 1, 256, native));
+    CHECK(out[1 + 200 * 256 + 48] == 0xffff0000 && out[1 + 199 * 256 + 48] != 0xffff0000);
+    {
+        uint32_t *big = malloc(400 * 300 * sizeof(*big));
+        CHECK(big);
+        gb_custom_height = 300;
+        ui_rows = 2.5;   /* twice: 320 x 80 at the bottom middle of 400 x 300 */
+        CHECK(render(ctx, big, 400, native));
+        CHECK(big[219 * 400 + 40] != 0xffff0000 && big[220 * 400 + 40] == 0xffff0000);
+        CHECK(big[299 * 400 + 47] == 0xffff0000 && big[299 * 400 + 48] == 0xff000000);
+        CHECK(big[250 * 400 + 39] == 0xff000000 && big[250 * 400 + 360] == 0xff000000);
+        /* With layers the box is the window's to draw, 160 x 40 at its own
+         * scale, over 100 rows (40 lines at 2.5 rows a line) kept black. */
+        gb_custom_layers = 1;
+        ui_screen_scale = 5;
+        gb_custom_layer = NULL;
+        gb_custom_layer_scale = 0;
+        CHECK(render(ctx, big, 400, native));
+        CHECK(gb_custom_layer && gb_custom_layer_width == 160 && gb_custom_layer_height == 40);
+        CHECK(gb_custom_layer_scale == 5 && gb_custom_layer[0] == 0xffff0000 && gb_custom_layer[39 * 160 + 4] == 0xff000000);
+        CHECK(big[200 * 400 + 40] == 0xff000000 && big[299 * 400 + 40] == 0xff000000);
+        free(big);
+        gb_custom_layers = 0;
+        gb_custom_layer = NULL;
+        gb_custom_layer_scale = 0;
+        ui_rows = 1;
+    }
+    s_dialogue_lift = 1;
+    {
+        /* A dialogue box larger than the status bar raises the world where the
+         * room's floor is at the picture's bottom, also a row under the bar
+         * (a room one row taller than the space above it at the zoom: the
+         * user's state1 of 2026-10-13), by at most the rows the box takes
+         * beyond the bar's (80 - 32); not with the option off, nor where the
+         * floor is below the picture. Room 0-225 in a 256 x 240 picture, the
+         * bottom UI at 2 rows a line: laid out in 224 rows, the camera at the
+         * top, the floor at 209, one under the bar's 208. */
+        const unsigned y0 = word(wram + 0x9df), y1 = word(wram + 0x9e1);
+        put16(wram + 0x9df, 0); put16(wram + 0x9e1, 81);
+        camera_y = scroll_y = 0;
+        gb_custom_height = 240; gb_custom_layers = 1; ui_rows = 2; ui_screen_scale = 2;
+        room_snap = 1;
+        CHECK(render(ctx, out + 1, 256, native));
+        CHECK(lift_shown == 48);
+        s_dialogue_lift = 0;
+        room_snap = 1;
+        CHECK(render(ctx, out + 1, 256, native));
+        CHECK(lift_shown == 0);
+        s_dialogue_lift = 1;
+        put16(wram + 0x9e1, 300);
+        room_snap = 1;
+        CHECK(render(ctx, out + 1, 256, native));
+        CHECK(lift_shown == 0);
+        /* With the status bar back the world comes down again. */
+        put16(wram + 0x9e1, 81);
+        room_snap = 1;
+        CHECK(render(ctx, out + 1, 256, native));
+        window_y = 128;
+        CHECK(render(ctx, out + 1, 256, native));
+        CHECK(lift_shown == 0);
+        put16(wram + 0x9df, y0); put16(wram + 0x9e1, y1);
+        camera_y = scroll_y = 96; window_y = 104;
+        gb_custom_layers = 0; gb_custom_layer = NULL; gb_custom_layer_scale = 0; ui_rows = 1;
+    }
+    {
+        /* The bottom UI's size (fit): the view's pixels times the setting, or
+         * with Auto as large as in the original picture (7.5x on a 1080p
+         * screen, 7x whole; the Original view's whole scale; inside the view,
+         * the view's), never wider than the picture nor a box taller. */
+        int w = 256, h = 144;
+        double s = 0;
+        const int mode = s_room_zoom, scaling = gb_custom_native_scaling, scale = gb_custom_native_scale;
+        s_room_zoom = SHANTAE_ROOM_ZOOM_OFF;
+        gb_custom_native_scaling = GB_CUSTOM_NATIVE_SCALING_MODE;
+        fit(ctx, 1920, 1080, 0, &w, &h, &s);
+        CHECK(ui_rows == 1 && ui_screen_scale == 7.5);
+        s_ui_scale = SHANTAE_UI_AUTO;
+        fit(ctx, 1920, 1080, 1, &w, &h, &s);
+        CHECK(ui_rows == 1 && ui_screen_scale == 7);
+        s_ui_scale = 2;   /* 15x would be wider than the picture: 12x */
+        fit(ctx, 1920, 1080, 0, &w, &h, &s);
+        CHECK(ui_screen_scale == 12 && fabs(ui_rows - 1.6) < 1e-9);
+        w = 1920; h = 1080;
+        fit(ctx, 1920, 1080, 0, &w, &h, &s);
+        CHECK(ui_rows == 2 && ui_screen_scale == 2);
+        s_ui_scale = SHANTAE_UI_AUTO;
+        fit(ctx, 1920, 1080, 0, &w, &h, &s);
+        CHECK(ui_rows == 7.5 && ui_screen_scale == 7.5);
+        gb_custom_native_scaling = GB_CUSTOM_NATIVE_WHOLE_SCALE;
+        gb_custom_native_scale = 3;
+        fit(ctx, 1920, 1080, 0, &w, &h, &s);
+        CHECK(ui_rows == 3);
+        gb_custom_native_scaling = GB_CUSTOM_NATIVE_IN_VIEW;
+        fit(ctx, 1920, 1080, 0, &w, &h, &s);
+        CHECK(ui_rows == 1);
+        s_room_zoom = mode;
+        s_ui_scale = 1;
+        gb_custom_native_scaling = scaling;
+        gb_custom_native_scale = scale;
+        ui_rows = 1;
+    }
+    {
+        /* The world keeps above a status bar larger than its own lines: with
+         * 16 lines at 2 rows each the room's bottom is 16 rows higher. */
+        int x0, y0, x1, y1;
+        const Box room = {0, 0, 1000, 400};
+        ui_extra_rows = 0;
+        view_origin(&room, 100, 256, 256, layout_height(240), &x0, &y0);
+        ui_extra_rows = 16;
+        view_origin(&room, 100, 256, 256, layout_height(240), &x1, &y1);
+        CHECK(x0 == x1 && y0 == 160 && y1 == 176);
+        ui_extra_rows = 0;
+    }
+    for (int i = 0; i < 144 * 160; ++i) native[i] = 0xff123456;
     lcdc = ppu->lcdc = 0x81; window_x = window_y = 0; gb_custom_height = 240;
 
     /* A declined frame is drawn by nobody but the native fallback, which
@@ -329,10 +464,19 @@ int main(void) {
     CHECK(ready && map_checked == 19 * 18 && map_matched == map_checked);
 
     /* Activation widens only in a room already presented expanded. A window
-     * above the status bar (a dialogue box from line 112) is not presented. */
+     * above the status bar that does not span the screen (from x 8) keeps
+     * the original composition, so it is not presented; a dialogue box (from
+     * line 112, across the screen) is. */
     put16(ctx->hram + 0x61, 516); put16(ctx->hram + 0x63, 264);
     reset_view(ctx);
-    lcdc = ppu->lcdc = 0xa1; ppu->wx = 7; ppu->wy = 112;
+    lcdc = ppu->lcdc = 0xa1; ppu->wx = 15; ppu->wy = 112;
+    snapshot(ctx);
+    CHECK(ready && !widened);
+    ppu->wx = 7;
+    snapshot(ctx);
+    CHECK(ready && widened);
+    reset_view(ctx);
+    ppu->wx = 15;
     snapshot(ctx);
     CHECK(ready && !widened);
     ctx->pc = 0x11d7; CHECK(read_override(ctx, 0xffb7, 0x12) == 0x12);
@@ -413,12 +557,12 @@ int main(void) {
     put16(ctx->wram + 0x9dd, 8032); put16(ctx->wram + 0x9e1, 8048);
     CHECK(read_override(ctx, 0xffb7, 0x12) != 0x12);
 
-    /* Towns (map 67:9B, camera x 0-480, y pinned) keep the original picture
-     * and activation, with no window up (the building-name panel is missing
-     * for two frames after a state load) and after the map was presented
-     * expanded (the shops share it). The shops' bounds widen as before. The
-     * test map's directory is copied to 67:9B, so the town is one the view
-     * would otherwise present. */
+    /* Towns (map 67:9B, camera x 0-480, y pinned) keep the original
+     * activation, with no window up (the building-name panel is missing for
+     * two frames after a state load) and after the map was presented expanded
+     * (the shops share it), and are presented with their street wrapping. The
+     * shops' bounds widen as before. The test map's directory is copied to
+     * 67:9B. */
     rom = realloc(rom, 0x9c * 0x4000);
     CHECK(rom);
     memset(rom + 0x8000, 0, 0x9a * 0x4000);
@@ -442,13 +586,23 @@ int main(void) {
     ctx->pc = 0x0fd0; CHECK(read_override(ctx, 0xffc5, 0x34) == 0x34);
     ctx->pc = 0x1130; CHECK(read_override(ctx, 0xffc6, 0x02) == 0x02);
     snapshot(ctx);
-    CHECK(!ready && widened && map_checked == 0);
-    CHECK(!render(ctx, out + 1, 256, native));
+    CHECK(ready && widened && map_checked);
+    CHECK(render(ctx, out + 1, 256, native));
+    {
+        /* The street wraps at 640 like the town's camera, so no side ends
+         * the room, which is the strip's art: 116 rows from the bounds' y. */
+        unsigned t0, a0, t1, a1;
+        CHECK(world_tile(ctx, 520, 264, &t0, &a0) && world_tile(ctx, 1160, 264, &t1, &a1) && t0 == t1 && a0 == a1);
+        CHECK(world_tile(ctx, -120, 264, &t1, &a1) && t0 == t1 && a0 == a1);
+        const Room town = room_at(ctx, wram, 604, 270, 0, 1);
+        CHECK(town.box.x0 < 604 - 4096 && town.box.x1 > 764 + 4096 && town.box.y0 == 264 && town.box.y1 == 380);
+        CHECK(!town.masked && !room_fits_screen(&town));
+    }
     /* The town engine's camera passes C9DD on its way round (604 in Water
      * Town, wrapping at 640): the same town. */
     put16(ctx->wram + 0x9fb, 604); put16(ctx->hram + 0x61, 604);
     snapshot(ctx);
-    CHECK(!ready);
+    CHECK(ready);
     ctx->pc = 0x11d7; CHECK(read_override(ctx, 0xffb7, 0x12) == 0x12);
     /* Only those bounds: a room of that map pinned otherwise is not a town. */
     put16(ctx->wram + 0x9fb, 516); put16(ctx->hram + 0x61, 516);
@@ -1190,13 +1344,15 @@ int main(void) {
             {352, 128, SHANTAE_ROOM_ZOOM_FILL, 1, 480, 270, 4},        /* 511 x 255 */
             {352, 128, SHANTAE_ROOM_ZOOM_WHOLE, 1, 640, 360, 3},
             {1888, 128, SHANTAE_ROOM_ZOOM_FILL, 1, 480, 270, 4},       /* 2047 x 255: scrolls across */
-            {1888, 128, SHANTAE_ROOM_ZOOM_WHOLE, 1, 640, 360, 3},
+            {1888, 128, SHANTAE_ROOM_ZOOM_WHOLE, 1, 480, 270, 4},      /* 255 x 4 + the bar's 16 fit */
             {1, 280, SHANTAE_ROOM_ZOOM_FILL, 1, 274, 154, 7},          /* 160 x 407 shaft */
             {1, 280, SHANTAE_ROOM_ZOOM_WHOLE, 1, 960, 540, 2},
             {2912, 640, SHANTAE_ROOM_ZOOM_FILL, 1, 1920, 1080, 0},     /* 3071 x 767: 1.38 rounds to 1 */
-            {2912, 640, SHANTAE_ROOM_ZOOM_FILL, 0, 1392, 783, 1080.0 / 783},
-            {352, 128, SHANTAE_ROOM_ZOOM_FILL, 0, 481, 271, 1080.0 / 271},
+            {2912, 640, SHANTAE_ROOM_ZOOM_FILL, 0, 1384, 778, 1064.0 / 767},
+            {352, 128, SHANTAE_ROOM_ZOOM_FILL, 0, 460, 258, 1064.0 / 255},
             {352, 128, SHANTAE_ROOM_ZOOM_OFF, 1, 1920, 1080, 0},
+            {3000, 2000, SHANTAE_ROOM_ZOOM_WHOLE, 1, 1920, 1080, 0},   /* larger both ways: not 7x */
+            {3000, 2000, SHANTAE_ROOM_ZOOM_WHOLE, 0, 1920, 1080, 0},
         };
         memset(wram, 0, sizeof(wram));
         lcdc = ppu->lcdc = 0xa1; window_x = 0; window_y = 128; ready = 1;
@@ -1211,6 +1367,39 @@ int main(void) {
             fit(ctx, 1920, 1080, cases[c].whole, &w, &h, &s);
             CHECK(w == cases[c].w && h == cases[c].h && fabs(s - cases[c].zoom) < 1e-9);
         }
+        /* The bottom UI keeps its size on screen when the room zooms in: 2x
+         * of the 1920 x 1080 view is 2 window pixels a pixel in the 7x
+         * corridor too (it was 14, wider than the picture: 12), and the bar's
+         * 32 pixels leave the corridor's 128 rows 8.2x, still 7x at most. */
+        s_ui_scale = 2;
+        put16(wram + 0x9dd, 1000 + 159); put16(wram + 0x9e1, 1000 - 1);
+        s_room_zoom = SHANTAE_ROOM_ZOOM_FILL;
+        zoom_snap = 1;
+        {
+            int w = 1920, h = 1080;
+            double s = 0;
+            fit(ctx, 1920, 1080, 1, &w, &h, &s);
+            CHECK(s == 7 && ui_screen_scale == 2 && fabs(ui_rows - 2.0 / 7) < 1e-9);
+            /* The zoom keeps the view's shape: the NES view (256 x 240, 4.5x
+             * between bars in 1080p) fills its 1152 x 1080 frame with the
+             * corridor at 7.2x, 160 x 150, not the window; a room larger than
+             * it is the view as it is, with Fill as with Whole room. */
+            zoom_snap = 1;
+            w = 256; h = 240; s = 0;
+            fit(ctx, 1920, 1080, 0, &w, &h, &s);
+            CHECK(w == 160 && h == 150 && fabs(s - 7.2) < 1e-9 && ui_screen_scale == 7.2);
+            put16(wram + 0x9dd, 1000 + 2999); put16(wram + 0x9e1, 1000 + 1999);
+            zoom_snap = 1;
+            w = 256; h = 240; s = 0;
+            fit(ctx, 1920, 1080, 0, &w, &h, &s);
+            CHECK(w == 256 && h == 240 && s == 0);
+            s_room_zoom = SHANTAE_ROOM_ZOOM_WHOLE;
+            zoom_snap = 1;
+            w = 256; h = 240; s = 0;
+            fit(ctx, 1920, 1080, 0, &w, &h, &s);
+            CHECK(w == 256 && h == 240 && s == 0);
+        }
+        s_ui_scale = 1;
         /* An arena locking in play (1A:54FD: span 32, 94) eases from 1x to 7x
          * over ZOOM_FRAMES guest frames; the camera unlocking behind a dark
          * frame snaps back; a dialogue box keeps the zoom it had. */
@@ -1391,7 +1580,7 @@ int main(void) {
         ctx->completed_frames = 10;
         w = 1920; h = 1080; s = 0;
         fit(ctx, 1920, 1080, 0, &w, &h, &s);   /* 1024 x 512 and the status bar */
-        CHECK(zoom == zoom_target && fabs(s - 1080.0 / 528) < 1e-9);
+        CHECK(zoom == zoom_target && fabs(s - 1064.0 / 512) < 1e-9);
 
         /* Activation keeps to the same room: at 256 x 144 the shaft's view
          * starts at x 2560 (the camera's own centering would give 2552), so
@@ -1419,6 +1608,6 @@ int main(void) {
           gb_custom_native_scaling == GB_CUSTOM_NATIVE_SCALING_MODE && gb_custom_native_scale == 1);
 
     free(out); free(rom); free(ppu); free(ctx->wram); free(ctx->hram); free(ctx);
-    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, the eye puzzles, graphics of an object's own, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures and the bottom strip passed.");
+    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, the eye puzzles, graphics of an object's own, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures, the bottom strip, dialogue in the view, the bottom UI's size under the room zoom and the world raised above a dialogue box passed.");
     return 0;
 }

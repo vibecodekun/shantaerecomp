@@ -225,16 +225,34 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
     move after turning back, with nothing to show it, and an enemy nearby hits her at once.
 
   Off plays as the original, frame for frame. The Esc → Shantae controls apply at once.
+- **Instant text** (on by default): press A while dialogue is printing and it runs to
+  the end at once, every box of it, exactly as holding B would a letter at a time, so
+  the box shows the text's last lines and B carries on. An A at a box waiting for B
+  goes on from there the same way. B still speeds text up and turns boxes, and A does
+  nothing else in dialogue. Off plays as the original.
 - **Expanded view** (off by default): a larger world view with the original pixel
   scale and the status bar at the bottom, 256×240 (NES size) unless changed. Enable
   it on the Mods page, then launch. Its options set the size: **Adaptive** fills the
   whole screen or window, whatever its shape (Height is then the least height); an
   **Aspect ratio** preset (Game Boy 10:9, NES 16:15, 4:3, 16:10, 16:9, 21:9, 32:9)
   sets the width for the current height, and **Width** and **Height** (160–8192 and
-  144–8192) adjust one pixel at a time; any other size is shown as Custom. Rooms
-  smaller than the view zoom in to fill it (**Room zoom**). The in-game Esc → Shantae
-  section has the same controls, and a size changed there applies at once; turning
-  the view on or off takes effect on the next launch.
+  144–8192) adjust one pixel at a time; any other size is shown as Custom. A height
+  of 144, the original's, keeps the original zoom and only adds to the sides (16:9
+  is then 256×144; Esc → Shantae → **Original height** sets it for the current
+  aspect). Rooms smaller than the view zoom in (**Room zoom**): *Fill the screen*
+  (default) until the room fills the view's own shape on screen (an NES 16:15 view
+  stays 16:15 between bars), *Whole room* as far as no side that fits is cut (a large
+  area stays as it is), or *Off*; the room's floor stays above the bottom UI, and towns
+  fill the screen above their name panel.
+  **Bottom UI size** sets the status bar, dialogue boxes and towns' name panels: 1x
+  (the default) with the view's own pixels, 2x–8x larger, or Auto as large as in
+  the original picture at any view size, the same size on screen when a room zooms
+  in; other sizes are drawn through the shader at their own pixel size, with the
+  world kept above them. **Dialogue box**: *Raises the world* (default) eases the
+  world up while a dialogue box would cover the floor (standing at the bottom of a
+  large area), *Covers the floor* leaves it as the original. The in-game Esc →
+  Shantae section has the same controls, and a size changed there applies at once;
+  turning the view on or off takes effect on the next launch.
 
 **Preemptive Frames** (Esc → Advanced → Display; 1 by default for Shantae) is the
 runtime's port of RetroArch's preemptive frames (`runahead.c`, `preempt_run`).
@@ -253,17 +271,24 @@ Settings are saved to `shantae.ini` next to the exe. `expanded_view=1`,
 brings the slowdown back and `reduce_input_lag=0` the original input timing;
 `smooth_moves=0` the original moves, with `whip_moving` (0 original, 1 slide, 2 cancel),
 `air_speed_b`, `fast_crawl` and `smooth_forms` its options; `easy_dance=0` the original
-dance, with `quick_steps` and `transform_invincible` its options. Menus and dialogue retain
-their original centered layout.
-Towns keep the original picture, object activation and 32-slot object table
-(their building-name panel covers the bottom, their camera wraps at 640 pixels,
-and their doors are found by the low byte of the distance), so every door, label
-and entrance is where the original has it. `tools/check_towns.py` checks all five
-(Scuttle Town, Water Town, Oasis Town, the Zombie Caravan and Bandit Town, the
-debug grid's N row) against the original: walking and running round each town
-plays frame for frame the same, and every door shows its label, opens on the
-same frame and leads to the same room (and, walking back out, to the same
-spot). Rooms whose
+dance, with `quick_steps` and `transform_invincible` its options; `instant_text=0`
+the original text; `ui_scale` the bottom UI's size (0 Auto, 1 the default, up to 16)
+and `dialogue_lift=0` a dialogue box covering the floor. Menus retain their original
+centered layout; the dialogue box sits at the bottom of the wide picture like the
+status bar, at the bottom UI's size, so talking never zooms in and out.
+Towns are shown wide: their street wraps at 640 pixels like their camera, and the
+townsfolk, who are always about, walk in from either side, with the building-name
+panel at the bottom and the street right on it, as in the original (Room zoom fills
+the screen above the panel with the town, past the original's zoom when the panel
+is smaller than the original's). They keep the original object activation and 32-slot
+object table (their doors are found by the low byte of the distance, and copies of
+the first doors past the seam stand in for them), so every door, label and entrance
+is where the original has it. `tools/check_towns.py` checks all five (Scuttle Town,
+Water Town, Oasis Town, the Zombie Caravan and Bandit Town, the debug grid's N row)
+against the original: walking and running round each town plays frame for frame
+the same, with the original picture where the wide one has it, and every door
+shows its label, opens on the same frame and leads to the same room (and, walking
+back out, to the same spot). Rooms whose
 camera is pinned to one screen, such as the first boss's arena, keep the
 original picture and activation too. Rooms narrower or shorter than the view
 (Risky's ship in the opening) are centered. This is experimental: the

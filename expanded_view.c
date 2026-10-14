@@ -5,6 +5,7 @@
  */
 #include "expanded_view.h"
 #include "object_slots.h"
+#include "dialogue.h"
 #include "gb_custom_view.h"
 #include "gbrt.h"
 #include "ppu.h"
@@ -41,6 +42,25 @@ static GBContext *s_ctx;           /* for the debug commands */
  * map it was worked out for, and whether the next one snaps. Presentation
  * only: nothing the game reads, so not part of the rollback state. */
 static double zoom, zoom_from, zoom_to, zoom_target;
+/* The bottom UI (shantae_ui_scale; fit works these out each frame): window
+ * pixels for each of its pixels, the same whatever the room zoom, and picture
+ * rows for each of its lines at the scale the picture is shown. */
+static double ui_screen_scale, ui_rows = 1;
+/* The lines of the status bar the room shows (0 without one), kept while a
+ * dialogue box stands in for it, and the picture rows the bottom UI takes
+ * beyond them: the world keeps above those (layout_height). */
+static int status_lines = 16, ui_extra_rows;
+static int layout_height(int height);
+/* A town's name panel, from line 104 on every frame: its bottom UI. Its art
+ * (TOWN_ART, room_at) starts TOWN_ABOVE rows above the camera's top. */
+#define TOWN_PANEL 40
+#define TOWN_ABOVE 12
+/* Rows the world is raised by while a dialogue box larger than the status bar
+ * would cover the room's floor (render), easing there per guest frame. */
+static double lift_shown;
+static uint64_t lift_frame;
+/* Where the last picture drawn has the native picture's top left. */
+static int native_left, native_top;
 static uint64_t zoom_frame;
 static uint8_t zoom_room[3];
 static int zoom_snap = 1, cut_x, cut_y;
@@ -143,6 +163,7 @@ static uint32_t color(const uint8_t *palette, int index) {
 }
 
 static int world_tile(const GBContext *ctx, int x, int y, unsigned *tile, unsigned *attr) {
+    if (town_room(wram)) x = (x % TOWN_WIDTH + TOWN_WIDTH) % TOWN_WIDTH;
     if (x < 0 || y < 0 || x >= 8192 || y >= 8192) return 0;
     unsigned directory = (wram[0x9f9] << 8) + (y >> 8) * 64 + (x >> 8) * 2;
     if (directory < 0x4000 || directory + 1 >= 0x8000) return 0;
@@ -219,6 +240,10 @@ static void reset_view(GBContext *ctx) {
     ready = 0;
     committed = 0;
     zoom_snap = room_snap = 1;
+    /* A state loaded during dialogue has no status bar on screen to go by;
+     * nearly every room has the 16-line one. */
+    status_lines = 16;
+    lift_shown = 0;
     /* A state saved after this frame's camera routine commits without
      * rerunning it; the stored offset is the one it used. */
     built_dx = ctx->wram ? (int16_t)memory16(ctx, 0xc9d2) : 0;
@@ -343,10 +368,37 @@ static int map_agrees(const GBContext *ctx, int hud) {
     return map_checked && map_matched * 2 >= map_checked;
 }
 
-/* Dialogue and other window scenes keep their original centered composition;
- * only a window along the bottom (status_bar) is moved to the view's bottom. */
-static int window_blocks(void) {
+/* A window along the bottom (status_bar) stays at the view's bottom. So does a
+ * window across the screen, a dialogue box or a town's name panel (both from
+ * line 104), so the picture keeps its size through dialogue instead of
+ * switching to the original picture (which zoomed in from the room's scale,
+ * 1.38x to 7.5x in the user's state1 of 2026-10-13 at 1920x1080). Both are
+ * the bottom UI, at its own size (shantae_ui_scale). Other window scenes keep
+ * their original centered composition. Returns the window's lines at the
+ * bottom. */
+static int window_strip(void) {
+    const int hud = status_bar(lcdc, window_x, window_y);
+    if (hud || !(lcdc & 0x20) || window_x != 0 || window_y <= 0 || window_y >= 144) return hud;
+    return 144 - window_y;
+}
+/* A window over more than the status bar's lines: dialogue, menus. */
+static int window_covers(void) {
     return (lcdc & 0x20) && window_x < 160 && window_y < 128;
+}
+static int window_blocks(void) {
+    return window_covers() && !window_strip();
+}
+/* The picture rows `lines` of the bottom UI take. */
+static int ui_band(int lines) {
+    return lines ? (int)ceil(lines * ui_rows - 1e-6) : 0;
+}
+/* The height the world is laid out in (view_origin): the picture less the
+ * rows the bottom UI takes beyond the room's own rows under it (the status
+ * bar's 16; a town's art ends above its panel), so the room's floor stays
+ * right above it. A dialogue box larger than that raises the world while it is
+ * up (render). */
+static int layout_height(int height) {
+    return height - ui_extra_rows;
 }
 
 static void snapshot(GBContext *ctx) {
@@ -369,6 +421,9 @@ static void snapshot(GBContext *ctx) {
     line0_scy = ppu->latched_scy;
     window_y = ppu->wy;
     window_x = (int)ppu->wx - 7;
+    /* The status bar's lines, kept while a dialogue box stands in for it. */
+    const int bar = status_bar(lcdc, window_x, window_y);
+    if (bar || !window_covers()) status_lines = bar;
     visible = latched;
     bg_visible = bg_latched;
     background_checked = background_matched = 0;
@@ -407,7 +462,7 @@ static void snapshot(GBContext *ctx) {
     /* Validate the world-map binding, then require the hardware to be drawing
      * it. A majority vote tolerates tiles streamed or changed between frames. */
     map_checked = map_matched = 0;
-    if (wram[0x9fa] && (lcdc & 1) && !town_room(wram)) {
+    if (wram[0x9fa] && (lcdc & 1)) {
         unsigned tile, attr;
         const int hud = status_bar(lcdc, window_x, window_y);
         const Room room = room_at(ctx, wram, camera_x, camera_y, hud, 0);
@@ -489,11 +544,13 @@ static int native_dark(const GBContext *ctx) {
  * map, a cut or a dark frame snaps to it, and frames shown again keep the ease
  * where it is. The camera's own screen in the room is always shown. */
 #define ROOM_JUMP 8
+static int room_snapped;   /* the last call snapped (the lift snaps with it) */
 static Box shown_room(const GBContext *ctx, const Box *target) {
     static int easing;
     const int jumped = abs(target->x0 - room_target.x0) > ROOM_JUMP || abs(target->y0 - room_target.y0) > ROOM_JUMP ||
                        abs(target->x1 - room_target.x1) > ROOM_JUMP || abs(target->y1 - room_target.y1) > ROOM_JUMP;
-    if (room_snap || memcmp(wram + 0x9f8, room_map, sizeof(room_map)) || native_dark(ctx)) {
+    room_snapped = room_snap || memcmp(wram + 0x9f8, room_map, sizeof(room_map)) || native_dark(ctx);
+    if (room_snapped) {
         easing = 0;
     } else if (jumped) {
         room_from = room_shown;
@@ -525,8 +582,29 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
     if (!ready || !(((GBPPU *)ctx->ppu)->lcdc & 0x80)) return 0;
     int height = gb_custom_height;
     if (window_blocks()) return 0;
-    int hud = status_bar(lcdc, window_x, window_y);
-    int world_height = height - hud;
+    /* The room is the status bar's, as in snapshot and fit, kept while a
+     * dialogue box stands in for it; a town's art ends above its name panel,
+     * its bottom UI. The window at the bottom (window_strip) is the bottom
+     * UI: drawn here at the world's pixels; at another size, handed to the
+     * window as a layer at its own size (gb_custom_layer) over rows kept for
+     * it, or, where the window has no layers (headless, a preset that draws a
+     * bezel), drawn here as many whole times over as fit. */
+    const int town = town_room(wram), strip = window_strip();
+    const int hud = town ? 0 : window_covers() ? status_lines : status_bar(lcdc, window_x, window_y);
+    const int bottom = town ? TOWN_PANEL : hud;
+    const int layered = fabs(ui_rows - 1) > 1e-6 && gb_custom_layers;
+    int times = layered ? 1 : (int)floor(ui_rows + 1e-6);
+    if (times > width / 160) times = width / 160;
+    if (strip && times > height / strip) times = height / strip;
+    if (times < 1) times = 1;
+    /* The rows the bottom UI takes now, and in play (the status bar's, or a
+     * town's panel). The world is laid out above the latter with the room's
+     * own rows under the status bar (16) beneath them; a town's art, its
+     * street at the bottom, right above it. */
+    const int band = layered ? clamp(ui_band(strip), 0, height) : strip * times;
+    const int base_band = layered ? clamp(ui_band(bottom), 0, height) : bottom * times;
+    ui_extra_rows = base_band - hud;
+    int world_height = height - band;
     const Room room = room_at(ctx, wram, camera_x, camera_y, hud, 1);
     const Box box = shown_room(ctx, &room.box);
     int min_x = box.x0, min_y = box.y0;
@@ -535,8 +613,37 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
      * displaced by the offset in the scroll, as on hardware. Room bounds apply
      * to the displayed position, so a moving boss stays inside the room. */
     int origin_x, origin_y, dx = scroll_x - camera_x, dy = scroll_y - camera_y;
-    view_origin(&box, camera_x, camera_y, width, height, &origin_x, &origin_y);
+    view_origin(&box, camera_x, camera_y, width, layout_height(height), &origin_x, &origin_y);
+    /* A dialogue box larger than the status bar (from line 104, 40 lines to
+     * its 16) would cover the room's floor where the picture shows it at its
+     * bottom: the camera at the room's bottom, which in a wide view is where
+     * Shantae stands, or a room the zoom fits to the picture, the box's
+     * background running across the whole view. The world is raised until the
+     * floor clears it, easing there, and down again when it goes; what goes
+     * off the top is the room's own, and what comes in under the floor is
+     * under the box. A floor below the picture's bottom raises nothing. The
+     * floor may be a row or two under the status bar (the zoom fits the room
+     * to the window, the bar's rows are whole): in the user's state1 of
+     * 2026-10-13 (the mayor's "Stay put!", 1920 x 1080 at 1.37x) a room one row
+     * taller than the space above the bar was not raised at all, and was once
+     * a rewind left another zoom. A town's panel is its status bar.
+     * dialogue_lift=0 covers the floor as the original. */
+    double lift = 0;
+    if (!town && band > base_band && shantae_dialogue_lift()) {
+        const int floor_row = max_y - origin_y;
+        if (floor_row <= height) lift = clamp(floor_row - (height - band), 0, band - base_band);
+    }
+    if (room_snapped) {
+        lift_shown = lift;
+    } else if (ctx->completed_frames != lift_frame) {
+        lift_shown += (lift - lift_shown) / 3;
+        if (fabs(lift - lift_shown) < 0.5) lift_shown = lift;
+    }
+    lift_frame = ctx->completed_frames;
+    origin_y += (int)lround(lift_shown);
     int left = camera_x - origin_x, top = camera_y - origin_y;
+    native_left = left;
+    native_top = top;
     /* Sprites and the native picture stop at the room's edges like the
      * background: a camera shaking past them (the rumble while the first
      * arena's stone sinks runs 2 pixels past its least x) flashed that strip
@@ -546,7 +653,10 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
     Grid g;
     g.wx0 = origin_x + dx;
     g.wy0 = origin_y + dy;
-    g.x0 = clamp(min_x - origin_x > -g.wx0 ? min_x - origin_x : -g.wx0, 0, width);
+    /* Columns left of the map's x 0 have nothing, except in a town, whose
+     * street wraps (world_tile). */
+    const int wraps = town_room(wram);
+    g.x0 = clamp(min_x - origin_x > -g.wx0 || wraps ? min_x - origin_x : -g.wx0, 0, width);
     g.x1 = clamp(max_x - origin_x, g.x0, width);
     g.y0 = clamp(min_y - origin_y > -g.wy0 ? min_y - origin_y : -g.wy0, 0, world_height);
     g.y1 = clamp(max_y - origin_y, g.y0, world_height);
@@ -579,7 +689,7 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
     uint32_t colors[64];
     for (int i = 0; i < 64; ++i) colors[i] = color(i < 32 ? bg_palette : obj_palette, i & 31);
     for (size_t i = 0; i < overlay_cells; ++i) overlay[i] = -1;
-    int tile_x = g.wx0 / 8, tile_y = g.wy0 / 8;
+    int tile_x = g.wx0 >> 3, tile_y = g.wy0 >> 3;
     for (int i = 0; i < bg_visible.count; ++i) {
         BackgroundTile *t = &bg_visible.tiles[i];
         int x = t->x - tile_x, y = t->y - tile_y;
@@ -685,7 +795,7 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
      * settled value that the rest of the frame uses. */
     uint32_t stale[64];
     for (int i = 0; i < 64; ++i) stale[i] = color(i < 32 ? line0_bg_palette : line0_obj_palette, i & 31);
-    for (int y = 0; y < 144 - hud; ++y) {
+    for (int y = 0; y < 144 - strip; ++y) {
         if (y + top < room_top || y + top >= room_bottom || copy_width <= 0) continue;
         uint32_t *at = out + (size_t)(y + top) * width + left + clip_x;
         memcpy(at, native + y * 160 + clip_x, copy_width * sizeof(uint32_t));
@@ -697,70 +807,139 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
     /* The window's own background (the color of most of it) continues beside
      * it: the intro's strip spans the view like a letterbox, with whatever
      * crosses it kept in the middle; the status bar's is black. */
-    const uint32_t *bar = native + (144 - hud) * 160;
+    const uint32_t *bar = native + (144 - strip) * 160;
     uint32_t fill = 0xff000000u;
     int votes = 0;
-    for (int i = 0; i < hud * 160; ++i) {
+    for (int i = 0; i < strip * 160; ++i) {
         if (!votes) fill = bar[i];
         votes += bar[i] == fill ? 1 : -1;
     }
     int count = 0;
-    for (int i = 0; i < hud * 160; ++i) count += bar[i] == fill;
-    if (count * 2 <= hud * 160) fill = 0xff000000u;
-    for (int y = 0; y < hud; ++y) {
+    for (int i = 0; i < strip * 160; ++i) count += bar[i] == fill;
+    if (count * 2 <= strip * 160) fill = 0xff000000u;
+    for (int y = 0; y < band; ++y) {
         uint32_t *row = out + (size_t)(world_height + y) * width;
         for (int x = 0; x < width; ++x) row[x] = fill;
-        memcpy(row + (width - 160) / 2, bar + y * 160, 160 * sizeof(uint32_t));
+        if (layered) continue;
+        const uint32_t *from = bar + y / times * 160;
+        row += (width - 160 * times) / 2;
+        for (int x = 0; x < 160 * times; ++x) row[x] = from[x / times];
+    }
+    static uint32_t layer[160 * 144];
+    if (layered && strip) {
+        memcpy(layer, bar, (size_t)strip * 160 * sizeof(uint32_t));
+        gb_custom_layer = layer;
+        gb_custom_layer_width = 160;
+        gb_custom_layer_height = strip;
+        gb_custom_layer_scale = ui_screen_scale;
     }
     return 1;
 }
 
+/* The bottom UI's size for a view `width` x `height` shown `base` window
+ * pixels per game pixel, in a window that shows the original picture
+ * `original` times (whole with Pixel Perfect): shantae_ui_scale view pixels
+ * for each of its pixels, or with AUTO as large as in the original picture
+ * (at the whole scale chosen for that, Original view; inside the view, the
+ * view's own). That is its size on screen whatever the room zoom does: with
+ * the size at 2x of a 1920 x 1080 view on a 1080p screen, a town zoomed to
+ * 7.5x drew its name panel 12 window pixels a pixel, 480 tall, and with 1x a
+ * room zoomed to 7.5x would draw the status bar 120 tall. Never wider than
+ * the view on screen, nor a dialogue box taller. On a 1080p screen in Aspect
+ * Fit, AUTO is 7.5 window pixels. */
+static void ui_size(double base, double original, int width, int height, int whole_pixels) {
+    const int setting = shantae_ui_scale();
+    double ui = setting * base;
+    if (setting == SHANTAE_UI_AUTO) {
+        ui = original;
+        if (gb_custom_native_scaling == GB_CUSTOM_NATIVE_IN_VIEW) ui = base;
+        else if (gb_custom_native_scaling == GB_CUSTOM_NATIVE_WHOLE_SCALE && gb_custom_native_scale < ui)
+            ui = gb_custom_native_scale;
+    }
+    const double room = fmin(width * base / 160.0, height * base / 40.0);
+    if (ui > room) ui = whole_pixels && room >= 1 ? floor(room) : room;
+    ui_screen_scale = ui;
+    ui_rows = ui / base;
+}
+
 /* Room zoom. A room smaller than the view (a few screens, or a camera locked
  * to an arena) would be drawn at the view's scale in a field of black. The
- * picture shrinks to it instead and the window scales it up. Fill zooms until
- * the room fills the window (to the nearest whole scale with Pixel Perfect),
- * scrolling along a side that no longer fits; Whole room zooms as far as it
- * can without cutting off a side that fits (whole scales round down). Never
- * past the original screen (160 x 144 at the least) nor below the view's own
- * scale. Rooms are entered through black (doors and deaths fade out) or a cut
- * (the intro's house to the bridge), so a new map, a dark frame or the camera
- * jumping snaps to the zoom; bounds that change in play (03:7A3D and 03:7AFE,
- * as an arena locks and unlocks) ease to it. */
+ * picture shrinks to it instead and the window scales it up. What the room
+ * shows is fitted to the window above the bottom UI at its size, the room's
+ * own rows under the status bar (or a town's panel) beneath that, so its
+ * floor is not cut off: in the user's state1 of 2026-10-13 (1920 x 1080, the
+ * bottom UI at 2x) the bar took 16 rows more than the zoom left for it.
+ * The room is fitted to the view's own shape, as large as the window holds
+ * it (NES 16:15 on a 16:9 screen: 1152 x 1080 between bars), not to the
+ * window: zoomed in, the picture keeps the shape the player chose. It took
+ * the window's, so a small room in a 16:15 view was shown 16:9. Fill zooms
+ * until the room fills that frame (to the nearest whole scale with Pixel
+ * Perfect), scrolling along a side that no longer fits. Whole room zooms as
+ * far as it can without cutting off a side that fits at the view's scale
+ * (whole scales round down), and not at all where none does; it took the
+ * original's scale there, so a large area zoomed all the way in. Off is the
+ * view as it is. Never past the original screen (the picture stays 160 x 144
+ * at the least, but for a town's) nor below the view's own scale. Rooms are entered through black (doors and deaths fade
+ * out) or a cut (the intro's house to the bridge), so a new map, a dark frame
+ * or the camera jumping snaps to the zoom; bounds that change in play
+ * (03:7A3D and 03:7AFE, as an arena locks and unlocks) ease to it. */
 static void fit(GBContext *ctx, int window_w, int window_h, int whole_pixels, int *width,
                 int *height, double *scale) {
     const int view_w = *width, view_h = *height, mode = shantae_room_zoom();
     ease_width = ease_height = 0;
-    if (mode == SHANTAE_ROOM_ZOOM_OFF || window_w < 160 || window_h < 144) {
+    double base = fmin((double)window_w / view_w, (double)window_h / view_h);
+    /* The view's shape as large as the window holds it: the room zoom's
+     * frame. The original picture's scale in the window is the bottom UI's
+     * Auto size, the frame's the zoom's limit. */
+    const double frame_w = view_w * base, frame_h = view_h * base;
+    double original = fmin(window_w / 160.0, window_h / 144.0), most = fmin(frame_w / 160.0, frame_h / 144.0);
+    if (whole_pixels) {
+        base = base < 1 ? 1 : floor(base);
+        original = floor(original);
+        most = floor(most);
+    }
+    ui_size(base, original, view_w, view_h, whole_pixels);
+    if (mode == SHANTAE_ROOM_ZOOM_OFF || frame_w < 160 || frame_h < 144) {
         zoom = zoom_target = 0;
         return;
     }
-    double base = fmin((double)window_w / view_w, (double)window_h / view_h);
-    double most = fmin(window_w / 160.0, window_h / 144.0);
-    if (whole_pixels) {
-        base = base < 1 ? 1 : floor(base);
-        most = floor(most);
-    }
     /* While the game declines frames (menus, dialogue, the LCD off, one-screen
-     * rooms) the picture stays as it was. */
-    if (ready && !window_blocks() && (((GBPPU *)ctx->ppu)->lcdc & 0x80)) {
-        const int hud = status_bar(lcdc, window_x, window_y);
+     * rooms) the picture stays as it was, and so does a dialogue box drawn in
+     * the view (window_strip), which needs it to keep its size. A town's name
+     * panel is up on every frame. */
+    if (ready && (!window_covers() || town_room(wram)) && (((GBPPU *)ctx->ppu)->lcdc & 0x80)) {
+        const int town = town_room(wram), hud = town ? 0 : status_bar(lcdc, window_x, window_y);
         const Room room = room_at(ctx, wram, camera_x, camera_y, hud, 0);
+        /* What the original shows of the room (a town: its art), and the
+         * window pixels the bottom UI takes in play. */
         int room_w = room.box.x1 - room.box.x0;
-        int room_h = room.box.y1 - hud - room.box.y0;
+        int room_h = room.box.y1 - room.box.y0 - hud;
         if (room_w < 160) room_w = 160;
-        if (room_h < 144 - hud) room_h = 144 - hud;
-        room_h += hud;
-        const double sx = (double)window_w / room_w, sy = (double)window_h / room_h;
+        if (!town && room_h < 144 - hud) room_h = 144 - hud;
+        const double bottom = (town ? TOWN_PANEL : hud) * ui_screen_scale;
+        const double sx = frame_w / room_w, sy = (frame_h - bottom) / room_h;
         double target;
         if (mode == SHANTAE_ROOM_ZOOM_WHOLE) {
-            target = room_w < view_w ? sx : INFINITY;
-            if (room_h < view_h && sy < target) target = sy;
-            if (whole_pixels && isfinite(target)) target = floor(target);
+            target = room_w <= view_w ? sx : INFINITY;
+            if (room_h + bottom / base <= view_h && sy < target) target = sy;
+            if (!isfinite(target)) target = base;
+            else if (whole_pixels) target = floor(target);
         } else {
             target = fmax(sx, sy);
             if (whole_pixels) target = floor(target + 0.5);
         }
-        zoom_target = fmax(fmin(target, most), base);
+        /* A town's art is 116 rows, the original's picture of it 104 above
+         * the panel: it fills the frame above a panel smaller than the
+         * original's past the original's scale, showing no less than those
+         * 104 rows. With the bottom UI at 2x of a 1920 x 1080 view, a town
+         * held at 7.5x showed 190 window rows of the blank map between its
+         * street and the panel. */
+        double limit = most;
+        if (town) {
+            limit = fmin(frame_w / 160.0, (frame_h - bottom) / (TOWN_ART - TOWN_ABOVE));
+            if (whole_pixels) limit = floor(limit);
+        }
+        zoom_target = fmax(fmin(target, limit), base);
         if (zoom <= 0 || zoom_snap || memcmp(wram + 0x9f8, zoom_room, sizeof(zoom_room)) || native_dark(ctx)) {
             zoom = zoom_from = zoom_to = zoom_target;
         } else {
@@ -781,15 +960,18 @@ static void fit(GBContext *ctx, int window_w, int window_h, int whole_pixels, in
         memcpy(zoom_room, wram + 0x9f8, sizeof(zoom_room));
         zoom_snap = 0;
     }
+    /* The picture is the original screen at the least, but for a town's. */
+    const int least = ready && town_room(wram) ? 1 : 144;
     if (zoom > 0 && zoom_to < zoom) {
         /* Easing out: activation takes the picture it eases to. */
-        ease_width = zoom_to <= base ? view_w : clamp((int)(window_w / zoom_to + 1e-6), 160, view_w);
-        ease_height = zoom_to <= base ? view_h : clamp((int)(window_h / zoom_to + 1e-6), 144, view_h);
+        ease_width = zoom_to <= base ? view_w : clamp((int)(frame_w / zoom_to + 1e-6), 160, view_w);
+        ease_height = zoom_to <= base ? view_h : clamp((int)(frame_h / zoom_to + 1e-6), least, view_h);
     }
     if (zoom <= base) return;   /* the view as it is, by the scaling mode */
-    *width = clamp((int)(window_w / zoom + 1e-6), 160, view_w);
-    *height = clamp((int)(window_h / zoom + 1e-6), 144, view_h);
+    *width = clamp((int)(frame_w / zoom + 1e-6), 160, view_w);
+    *height = clamp((int)(frame_h / zoom + 1e-6), least, view_h);
     *scale = zoom;
+    ui_rows = ui_screen_scale / zoom;
 }
 
 void shantae_view_init(GBContext *ctx) {
@@ -853,14 +1035,16 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
     if (!strcmp(cmd, "shantae_hold_info") && s_ctx) {
         /* Also "Reduce input lag": VBlanks that copied the fresh sprite buffer
          * versus kept the original one, and player moves run early (extras.c). */
-        unsigned long long fresh, original, early_moves, replays;
+        unsigned long long fresh, original, early_moves, replays, texts, text_runs;
         shantae_input_lag_counts(&fresh, &original, &early_moves, &replays);
+        shantae_text_counts(&texts, &text_runs);   /* and "Instant text" */
         gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"holds\":%llu,\"limit_hits\":%llu,"
                                  "\"fresh_sprites\":%llu,\"original_sprites\":%llu,"
-                                 "\"early_moves\":%llu,\"preempt_replays\":%llu}", id,
+                                 "\"early_moves\":%llu,\"preempt_replays\":%llu,\"texts\":%llu,"
+                                 "\"text_runs\":%llu}", id,
                                  (unsigned long long)s_ctx->frame_hold.holds,
                                  (unsigned long long)s_ctx->frame_hold.limit_hits, fresh, original,
-                                 early_moves, replays);
+                                 early_moves, replays, texts, text_runs);
         return 1;
     }
     if (!strcmp(cmd, "shantae_flight") && s_ctx && s_ctx->wram) {
@@ -939,7 +1123,7 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
     int own_tiles = 0;   /* cells of the last picture drawn from their object's own load */
     for (int i = 0; i < bg_visible.count; ++i) own_tiles += bg_visible.tiles[i].pattern != 0;
     if (s_ctx && s_ctx->wram) room = room_at(s_ctx, wram, camera_x, camera_y, status_bar(lcdc, window_x, window_y), 1);
-    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"crows\":%u,\"eyes\":%u,\"eye_boxes\":%u,\"jars\":%u,\"loads_kept\":%u,\"shots_kept\":%u,\"own_tiles\":%d,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d]}",
+    gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"ready\":%d,\"expanded\":%d,\"camera_x\":%d,\"camera_y\":%d,\"scroll_x\":%d,\"scroll_y\":%d,\"committed\":%d,\"commit_ly\":%d,\"scx\":%d,\"scy\":%d,\"widened\":%d,\"count\":%d,\"oam_checked\":%u,\"oam_matched\":%u,\"background_tiles\":%d,\"background_checked\":%u,\"background_matched\":%u,\"map_checked\":%u,\"map_matched\":%u,\"slots\":%d,\"free_slots\":%d,\"spawn_waits\":%u,\"encounter_waits\":%u,\"early_releases\":%u,\"doors_restored\":%u,\"extra_moves\":%llu,\"extra_layered\":%llu,\"extra_drawn\":%llu,\"slot_upgrades\":%llu,\"orphans_freed\":%llu,\"node_pools\":%llu,\"node_upgrades\":%llu,\"node_repairs\":%llu,\"slot_repairs\":%llu,\"children_freed\":%llu,\"town_tables\":%llu,\"town\":%d,\"activated\":%d,\"fills\":%u,\"budgets\":%u,\"crows\":%u,\"eyes\":%u,\"eye_boxes\":%u,\"jars\":%u,\"loads_kept\":%u,\"shots_kept\":%u,\"own_tiles\":%d,\"width\":%d,\"height\":%d,\"zoom\":%.4f,\"zoom_target\":%.4f,\"room\":[%d,%d,%d,%d],\"room_masked\":%d,\"shown\":[%d,%d,%d,%d],\"ui\":%.4f,\"ui_rows\":%.4f,\"lift\":%.2f,\"native\":[%d,%d]}",
                              id, ready, expanded, camera_x, camera_y, scroll_x, scroll_y, committed, commit_ly, line0_scx, line0_scy, widened, visible.count, oam_checked, oam_matched,
                              bg_visible.count, background_checked, background_matched, map_checked, map_matched, slots, free, spawn_waits, encounter_waits, early_releases, doors_restored,
                              counts.moves, counts.layered, counts.drawn, counts.upgrades, counts.reaped,
@@ -948,7 +1132,7 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
                              s_ctx && s_ctx->wram ? activation_widened(s_ctx) : 0, fills, budget_reads, crows_restored, eye_reads, eye_boxes, jars_restored, loads_kept, shots_kept, own_tiles,
                              gb_custom_width, gb_custom_height, zoom, zoom_target, room.box.x0, room.box.y0,
                              room.box.x1, room.box.y1, room.masked, room_shown.x0, room_shown.y0,
-                             room_shown.x1, room_shown.y1);
+                             room_shown.x1, room_shown.y1, ui_screen_scale, ui_rows, lift_shown, native_left, native_top);
     for (int i = 0; i < visible.count; ++i) {
         Draw *d = &visible.draws[i];
         gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"index\":%d,\"x\":%d,\"y\":%d,\"bank\":%u,\"descriptor\":%u,\"graphics\":%u}",
