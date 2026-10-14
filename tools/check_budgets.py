@@ -32,6 +32,7 @@ import time
 
 from view_probe import Debug, ROOT
 from view_state_repro import step
+from make_states import wait_for_title
 
 SLOTS = [0xD000 + i * 126 if i < 93 else 0xA000 + (i - 93) * 126 for i in range(157)]
 ROM = (ROOT / "roms/shantae.gbc").read_bytes()
@@ -97,7 +98,8 @@ class Game:
 
     def debug_grid(self, path):
         """From a cold boot: the title code at "Press Start", Start Debug Game, File Select."""
-        self.press("-", 300)
+        self.c.command("set_input", buttons="-")
+        wait_for_title(self.c)
         for buttons, count in (("L", 2), ("R", 8), ("L", 6), ("R", 2), ("L", 7), ("R", 6), ("L", 8)):
             for _ in range(count):
                 self.press(buttons, 4)

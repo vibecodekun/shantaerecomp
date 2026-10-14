@@ -53,9 +53,23 @@ def press(g, buttons, count):
     step(g.c, count)
 
 
+# "Press Start" takes its code by this guest frame of a cold boot with nothing
+# pressed (the boot is the same every time). The game runs some 900 frames
+# before the debug server's pause takes, more or fewer with the machine's load,
+# so 300 frames from the pause began the code 10 frames too soon on a busy run.
+TITLE_FRAME = 1300
+
+
+def wait_for_title(c):
+    frame = c.command("frame")["frame"]
+    if frame < TITLE_FRAME:
+        step(c, TITLE_FRAME - frame)
+
+
 def debug_grid(g, path):
     """From a cold boot: the code at "Press Start", Start Debug Game, File Select's New 1."""
-    press(g, "-", 300)
+    g.c.command("set_input", buttons="-")
+    wait_for_title(g.c)
     for buttons, count in (("L", 2), ("R", 8), ("L", 6), ("R", 2), ("L", 7), ("R", 6), ("L", 8)):
         for _ in range(count):
             press(g, buttons, 4)
