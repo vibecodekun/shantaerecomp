@@ -117,8 +117,10 @@ for arch in "${arches[@]}"; do
         -DCMAKE_TOOLCHAIN_FILE="$ROOT/tools/linux/toolchain.cmake" \
         -DSHANTAE_LINUX_ARCH="$arch" -DSHANTAE_LINUX_CACHE="$CACHE" \
         -DSDL2_DIR="$CACHE/sdl2-$arch/lib/cmake/SDL2" \
+        -DRECOMP_UI_ROOT="$TREE/recomp-ui" \
         -DRECOMP_UI_ENABLE_MODS=ON > "$CACHE/cmake-$arch.log" 2>&1 \
         || { tail -30 "$CACHE/cmake-$arch.log"; exit 1; }
+    grep -q "recomp-ui launcher: ON" "$CACHE/cmake-$arch.log" || { echo "the launcher is not in the $arch build"; exit 1; }
     log "building $arch"
     "$NINJA" -C "$build" > "$CACHE/build-$arch.log" 2>&1 \
         || { grep -E "error|FAILED" "$CACHE/build-$arch.log" | head -30; exit 1; }

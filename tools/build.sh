@@ -27,11 +27,17 @@ ninja -C gbrecompiled/build gbrecomp > "$LOGS/build_recomp.log" 2>&1 || { grep -
 grep -E "Found [0-9]+ functions" "$LOGS/recomp.log"
 # Configure every time (quick when nothing changed) so the options below stick.
 # RECOMP_UI_ENABLE_MODS shows Shantae's options on the launcher's Mods page.
+# The launcher is the repo's recomp-ui submodule, named outright: the generated
+# project otherwise probes ../recomp-ui beside the repo first, and a cache that
+# found a checkout there keeps its path after it is gone (the launcher is then
+# left out of the build without an error).
 cmake -G Ninja -S generated -B generated/build \
     -DCMAKE_MAKE_PROGRAM=/c/msys64/mingw64/bin/ninja.exe \
     -DCMAKE_C_COMPILER=/c/msys64/mingw64/bin/gcc.exe \
     -DCMAKE_CXX_COMPILER=/c/msys64/mingw64/bin/g++.exe \
+    -DRECOMP_UI_ROOT="$ROOT/recomp-ui" \
     -DRECOMP_UI_ENABLE_MODS=ON > "$LOGS/cmake.log" 2>&1 || { tail -20 "$LOGS/cmake.log"; exit 1; }
+grep -q "recomp-ui launcher: ON" "$LOGS/cmake.log" || { echo "the launcher is not in the build:"; grep "recomp-ui" "$LOGS/cmake.log"; exit 1; }
 ninja -C generated/build > "$LOGS/build_game.log" 2>&1 || { grep -E "error|FAILED" "$LOGS/build_game.log" | head -20; exit 1; }
 "$PYTHON" tools/check_startup.py
 echo "build ok: generated/build/shantae.exe"

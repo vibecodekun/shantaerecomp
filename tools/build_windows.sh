@@ -99,8 +99,10 @@ build_cross() {
         -DSHANTAE_MSYS2="$(winpath "$MSYS2")" \
         -DSDL2_DIR="$(winpath "$CACHE/sysroot-$arch/$prefix/lib/cmake/SDL2")" \
         -DGBRECOMP_STAGE_RUNTIME_DLLS=OFF \
+        -DRECOMP_UI_ROOT="$(winpath "$ROOT/recomp-ui")" \
         -DRECOMP_UI_ENABLE_MODS=ON > "$build/cmake.log" 2>&1 \
         || { tail -30 "$build/cmake.log"; exit 1; }
+    grep -q "recomp-ui launcher: ON" "$build/cmake.log" || { echo "the launcher is not in the $arch build"; exit 1; }
     log "building $arch (generated/build-$arch)"
     PATH="$path:$SYSPATH" "$MSYS2/mingw64/bin/ninja.exe" -C "$(winpath "$build")" > "$build/build.log" 2>&1 \
         || { grep -E "error|FAILED" "$build/build.log" | head -30; exit 1; }
