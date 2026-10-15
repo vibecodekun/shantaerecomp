@@ -2,6 +2,7 @@
 // settings are on the launcher's Mods page (launcher_options.c).
 #include "imgui.h"
 
+#include <SDL.h>
 #include <cstdio>
 
 #include "game_extras.h"
@@ -22,6 +23,18 @@ extern "C" int shantae_remove_slowdown(void);
 extern "C" void shantae_set_remove_slowdown(int on);
 extern "C" int shantae_reduce_input_lag(void);
 extern "C" void shantae_set_reduce_input_lag(int on);
+
+// The desktop of the display the game's window is on; 0 x 0 when unknown.
+static void screen_size(int *width, int *height) {
+    SDL_Window *window = SDL_GetKeyboardFocus();
+    const int display = window ? SDL_GetWindowDisplayIndex(window) : 0;
+    SDL_DisplayMode mode;
+    *width = *height = 0;
+    if (SDL_GetDesktopDisplayMode(display < 0 ? 0 : display, &mode) == 0) {
+        *width = mode.w;
+        *height = mode.h;
+    }
+}
 
 void game_draw_overlay(struct GBContext *ctx) {
     (void)ctx;
@@ -149,21 +162,25 @@ void game_draw_overlay(struct GBContext *ctx) {
         ImGui::BeginDisabled();
         ImGui::InputInt("Width", &follows, 1, 8);
         ImGui::EndDisabled();
-        if (ImGui::InputInt("Least height", &height, 1, 8)) shantae_set_view_size(width, height);
+        if (ImGui::InputInt("Least height", &height, 1, 8)) shantae_set_view_height(height);
         ImGui::TextDisabled("Fills the window. Pixel Perfect scaling uses the largest");
         ImGui::TextDisabled("whole-pixel scale that shows at least this height.");
     } else {
         if (ImGui::InputInt("Width", &width, 1, 8)) shantae_set_view_size(width, height);
-        if (ImGui::InputInt("Height", &height, 1, 8)) shantae_set_view_size(width, height);
+        // A preset keeps its shape: 16:9 stays 16:9.
+        if (ImGui::InputInt("Height", &height, 1, 8)) shantae_set_view_height(height);
     }
     ImGui::TextDisabled("%d to %d wide, %d to %d tall. NES is 256 x 240.", SHANTAE_VIEW_MIN_WIDTH,
                         SHANTAE_VIEW_MAX_WIDTH, SHANTAE_VIEW_MIN_HEIGHT, SHANTAE_VIEW_MAX_HEIGHT);
-    // The original's height keeps its zoom; the aspect (or the shape) stays.
-    if (ImGui::Button("Original height (144)") && height != SHANTAE_VIEW_MIN_HEIGHT) {
-        int w = width, h = SHANTAE_VIEW_MIN_HEIGHT;
-        if (preset >= 0) shantae_view_aspect_size(preset, &w, &h);
-        else if (!adaptive) w = (int)((long long)width * h / height);
-        shantae_set_view_size(w, h);
+    // The original's height keeps its zoom: a preset keeps its shape, a custom
+    // size takes the screen's (426 x 144 becomes 256 x 144 on a 16:9 screen).
+    if (ImGui::Button("Original height (144)")) {
+        int w = width, h = SHANTAE_VIEW_MIN_HEIGHT, sw = 0, sh = 0;
+        if (!adaptive) {
+            screen_size(&sw, &sh);
+            shantae_view_original_size(width, height, sw, sh, &w, &h);
+        }
+        if (w != width || h != height) shantae_set_view_size(w, h);
     }
     ImGui::TextDisabled("More to either side at the original zoom, dialogue");
     ImGui::TextDisabled("and towns too (16:9 is then 256 x 144).");

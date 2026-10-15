@@ -8,6 +8,25 @@ exceeds its ratio (16:9 at 240 is 426, which fits 2560 and 3840 wide screens at
 a whole-number scale). Width and height then change a pixel at a time. The
 aspect is not stored; a size shows the preset it matches, or Custom.
 
+A new height keeps a preset's shape (`shantae_view_size_at_height`): 16:9 at
+240 set to 144 is 256×144, the height asked for at the shape's width, clamped to
+the width limits (16:15 at 144 would be 153 wide and is the original 160×144). A
+custom size keeps its width. The height used to keep the width whatever the
+shape: 16:9 and then 144 gave 426×144, and on a 1920×1080 screen that view is
+shown 4.5 times (4 with Pixel Perfect), as large as 426×240 or the default
+256×240, not the original's 7.5 (7). An end user on 2026-10-14 did just that
+and found that gameplay "zooms too far out again", since the title screen and
+menus always show the original picture.
+
+**Zoom** (launcher) and **Original height** (Esc menu) pick the height with the
+shape kept (`shantae_view_original_size`). *Original* is 144 tall: a preset
+keeps its shape, a custom size takes the shape of the screen the window is on,
+even when it is 144 tall already, since there its width is what keeps the zoom
+from the original's (426×144 becomes 256×144 on a 16:9 screen, 344×144 on
+3440×1440). The size it gives gives itself again, so the launcher shows
+Original once it is chosen. *Default* is 240 tall, the shape kept; *Custom*
+is any other height. With Adaptive both set the least height.
+
 **Adaptive** (first in the aspect list) fills the whole screen or window and
 follows it when the window is resized or the scaling mode changes. The height
 becomes the least height: with Pixel Perfect scaling the view takes the largest

@@ -268,6 +268,13 @@ void shantae_set_view_size(int width, int height) {
     save_settings();
     shantae_view_apply_size();
 }
+/* Adaptive takes it as the least height; its width follows the window. */
+void shantae_set_view_height(int height) {
+    int width, h;
+    load_settings();
+    shantae_view_size_at_height(s_view_width, s_view_height, height, &width, &h);
+    shantae_set_view_size(s_view_adaptive ? s_view_width : width, h);
+}
 void shantae_set_view_adaptive(int on) {
     load_settings(); s_view_adaptive = on != 0; save_settings();
     shantae_view_apply_size();

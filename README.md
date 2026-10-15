@@ -235,15 +235,18 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
   it on the Mods page, then launch. Its options set the size: **Adaptive** fills the
   whole screen or window, whatever its shape (Height is then the least height); an
   **Aspect ratio** preset (Game Boy 10:9, NES 16:15, 4:3, 16:10, 16:9, 21:9, 32:9)
-  sets the width for the current height, and **Width** and **Height** (160–8192 and
-  144–8192) adjust one pixel at a time; any other size is shown as Custom. A height
-  of 144, the original's, keeps the original zoom and only adds to the sides (16:9
-  is then 256×144; Esc → Shantae → **Original height** sets it for the current
-  aspect). Rooms smaller than the view zoom in (**Room zoom**): *Fill the screen*
-  (default) until the room fills the view's own shape on screen (an NES 16:15 view
-  stays 16:15 between bars), *Whole room* as far as no side that fits is cut (a large
-  area stays as it is), or *Off*; the room's floor stays above the bottom UI, and towns
-  fill the screen above their name panel.
+  sets the width for the current height. **Zoom** then picks the height: *Original*
+  is 144 tall like the original screen, so the game is as large as in the original
+  and the view only adds to the sides (16:9 is then 256×144; a custom shape takes
+  the screen's), and *Default* is 240 tall. **Width** and **Height** (160–8192 and
+  144–8192) adjust one pixel at a time; Height keeps a preset's shape, and any other
+  size is shown as Custom. Esc → Shantae → **Original height** is the in-game Zoom:
+  Original. The title screen and menus always show the original picture, so the
+  zoom shows once play starts. Rooms smaller than the view zoom in (**Room zoom**):
+  *Fill the screen* (default) until the room fills the view's own shape on screen
+  (an NES 16:15 view stays 16:15 between bars), *Whole room* as far as no side that
+  fits is cut (a large area stays as it is), or *Off*; the room's floor stays above
+  the bottom UI, and towns fill the screen above their name panel.
   **Bottom UI size** sets the status bar, dialogue boxes and towns' name panels: 1x
   (the default) with the view's own pixels, 2x–8x larger, or Auto as large as in
   the original picture at any view size, the same size on screen when a room zooms

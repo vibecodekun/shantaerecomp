@@ -86,3 +86,17 @@ int shantae_view_aspect_find(const char *id);
 int shantae_view_aspect_of(int width, int height);
 /* Size of preset `index` at *height (kept when the width limits allow). */
 void shantae_view_aspect_size(int index, int *width, int *height);
+/* The size a new height gives a width x height view: a preset keeps its shape
+ * (16:9 at 144 is 256 x 144), at the height asked for (a width past the limits
+ * is clamped, so 16:15 at 144 is the original 160 x 144); a custom size keeps
+ * its width. */
+void shantae_view_size_at_height(int width, int height, int new_height, int *out_width, int *out_height);
+void shantae_set_view_height(int height);
+/* Original height: the original screen's 144 rows, so the view keeps the
+ * original's zoom and only adds to the sides. A preset keeps its shape; a
+ * custom size takes the screen's (screen_w x screen_h; its own shape when that
+ * is 0), even when it is already 144 tall: there its width is what keeps the
+ * zoom from the original's (426 x 144 is shown no larger than 426 x 240 on a
+ * 16:9 screen). The result gives itself again. */
+void shantae_view_original_size(int width, int height, int screen_w, int screen_h, int *out_width,
+                                int *out_height);

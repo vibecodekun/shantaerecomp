@@ -120,6 +120,43 @@ int main(void) {
             CHECK(shantae_view_aspect_of(pw, ph) == i);
         }
 
+    /* A new height keeps a preset's shape (16:9 then 144 was 426 x 144, shown
+     * no larger than 426 x 240), at the height asked for; a custom size keeps
+     * its width. */
+    shantae_view_size_at_height(426, 240, 144, &pw, &ph); CHECK(pw == 256 && ph == 144);
+    shantae_view_size_at_height(256, 144, 240, &pw, &ph); CHECK(pw == 426 && ph == 240);
+    shantae_view_size_at_height(256, 240, 144, &pw, &ph); CHECK(pw == 160 && ph == 144);
+    shantae_view_size_at_height(256, 240, 241, &pw, &ph); CHECK(pw == 257 && ph == 241);
+    shantae_view_size_at_height(426, 240, 241, &pw, &ph);
+    CHECK(pw == 428 && ph == 241 && shantae_view_aspect_of(pw, ph) == shantae_view_aspect_find("16:9"));
+    shantae_view_size_at_height(1706, 480, 2400, &pw, &ph); CHECK(pw == 8192 && ph == 2400);
+    shantae_view_size_at_height(426, 144, 240, &pw, &ph); CHECK(pw == 426 && ph == 240);
+    shantae_view_size_at_height(426, 240, 100, &pw, &ph); CHECK(pw == 256 && ph == 144);
+    /* Original height: a preset at 144, a custom size the screen's shape even
+     * when it is 144 tall already; the result gives itself again. */
+    shantae_view_original_size(426, 240, 1920, 1080, &pw, &ph); CHECK(pw == 256 && ph == 144);
+    shantae_view_original_size(336, 144, 1920, 1080, &pw, &ph); CHECK(pw == 336 && ph == 144);
+    shantae_view_original_size(426, 144, 1920, 1080, &pw, &ph); CHECK(pw == 256 && ph == 144);
+    shantae_view_original_size(426, 144, 3440, 1440, &pw, &ph); CHECK(pw == 344 && ph == 144);
+    shantae_view_original_size(300, 200, 1920, 1200, &pw, &ph); CHECK(pw == 230 && ph == 144);
+    shantae_view_original_size(300, 200, 0, 0, &pw, &ph); CHECK(pw == 216 && ph == 144);
+    shantae_view_original_size(426, 144, 0, 0, &pw, &ph); CHECK(pw == 426 && ph == 144);
+    shantae_view_original_size(500, 300, 1080, 1920, &pw, &ph); CHECK(pw == 160 && ph == 144);
+    {
+        static const int screens[][2] = {{1920, 1080}, {2560, 1440}, {3440, 1440}, {2560, 1080},
+                                         {1920, 1200}, {1280, 1024}, {1080, 1920}, {0, 0}};
+        static const int sizes[][2] = {{256, 240}, {426, 240}, {426, 144}, {300, 200},
+                                       {160, 144}, {8192, 8192}, {1920, 1080}, {161, 9000}};
+        for (int s = 0; s < 8; ++s)
+            for (int z = 0; z < 8; ++z) {
+                int w2, h2;
+                shantae_view_original_size(sizes[z][0], sizes[z][1], screens[s][0], screens[s][1], &pw, &ph);
+                CHECK(ph == 144 && pw >= SHANTAE_VIEW_MIN_WIDTH && pw <= SHANTAE_VIEW_MAX_WIDTH);
+                shantae_view_original_size(pw, ph, screens[s][0], screens[s][1], &w2, &h2);
+                CHECK(w2 == pw && h2 == ph);
+            }
+    }
+
     /* Adaptive views fill the window: with whole pixels at the largest scale
      * that keeps the least height, otherwise at exactly that height. */
     gb_custom_render = render;
@@ -1608,6 +1645,6 @@ int main(void) {
           gb_custom_native_scaling == GB_CUSTOM_NATIVE_SCALING_MODE && gb_custom_native_scale == 1);
 
     free(out); free(rom); free(ppu); free(ctx->wram); free(ctx->hram); free(ctx);
-    puts("Expanded view: aspect presets, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, the eye puzzles, graphics of an object's own, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures, the bottom strip, dialogue in the view, the bottom UI's size under the room zoom and the world raised above a dialogue box passed.");
+    puts("Expanded view: aspect presets, heights keeping their shape, the original height, adaptive sizes, sector coverage up to 8192x8192, background coordinates, reset, shake clipping, sizes 160x144 to 3840x2160 and 8192x1024, map gate, towns, committed camera, background offset, one-screen rooms, centered small rooms, fade palettes, object slots, the tinkerbat cap, spawner budgets, totem stones, the eye puzzles, graphics of an object's own, retention past the spawn guard, filling revealed areas, 256x240 composition, the original view's scaling, room zoom, room easing, rooms kept to their pictures, the bottom strip, dialogue in the view, the bottom UI's size under the room zoom and the world raised above a dialogue box passed.");
     return 0;
 }

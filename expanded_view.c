@@ -155,6 +155,30 @@ int shantae_view_aspect_of(int width, int height) {
     }
     return -1;
 }
+void shantae_view_size_at_height(int width, int height, int new_height, int *out_width, int *out_height) {
+    const ShantaeViewAspect *a = shantae_view_aspect_info(shantae_view_aspect_of(width, height));
+    *out_height = clamp(new_height, SHANTAE_VIEW_MIN_HEIGHT, SHANTAE_VIEW_MAX_HEIGHT);
+    /* The height asked for, at the shape's width where the width limits allow
+     * (16:15 at 144 would be 153 wide: the original screen's 160). */
+    *out_width = a ? clamp((int)((long long)*out_height * a->num / a->den), SHANTAE_VIEW_MIN_WIDTH,
+                           SHANTAE_VIEW_MAX_WIDTH)
+                   : width;
+}
+void shantae_view_original_size(int width, int height, int screen_w, int screen_h, int *out_width,
+                                int *out_height) {
+    const int h = SHANTAE_VIEW_MIN_HEIGHT;
+    if (shantae_view_aspect_of(width, height) >= 0) {
+        shantae_view_size_at_height(width, height, h, out_width, out_height);
+        return;
+    }
+    /* The screen's shape, rounded down like a preset; the size's own when the
+     * screen is unknown. */
+    long long w = screen_w > 0 && screen_h > 0 ? (long long)screen_w * h / screen_h
+                                               : (long long)width * h / height;
+    *out_width = (int)(w < SHANTAE_VIEW_MIN_WIDTH ? SHANTAE_VIEW_MIN_WIDTH
+                       : w > SHANTAE_VIEW_MAX_WIDTH ? SHANTAE_VIEW_MAX_WIDTH : w);
+    *out_height = h;
+}
 
 static uint32_t color(const uint8_t *palette, int index) {
     unsigned c = word(palette + index * 2);

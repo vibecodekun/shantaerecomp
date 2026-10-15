@@ -3,8 +3,9 @@
  *
  * Seven built-in features: "GBA Enhanced mode" with a Colors choice,
  * "Expanded view" with an aspect ratio (or Adaptive, filling the screen), a
- * width and height in pixels, the scale of the original view it falls back
- * to, the room zoom and the bottom UI, "Remove slowdown", "Reduce input lag",
+ * zoom (the original's height or the default's), a width and height in
+ * pixels, the scale of the original view it falls back to, the room zoom and
+ * the bottom UI, "Remove slowdown", "Reduce input lag",
  * "Smoother movement" with what a whip does on the move, the air speed, the
  * crawl and the transformations, "Easier dancing" with the dance steps and
  * invincibility after transforming, and "Instant text".
@@ -45,6 +46,10 @@ void shantae_set_reduce_input_lag(int on);
 #define OPTION_HEIGHT "height"
 #define ASPECT_CUSTOM "custom"
 #define ASPECT_ADAPTIVE "adaptive"
+#define OPTION_ZOOM "zoom"
+#define ZOOM_ORIGINAL "original"
+#define ZOOM_DEFAULT "default"
+#define ZOOM_DEFAULT_HEIGHT 240
 #define OPTION_NATIVE "original_view"
 #define OPTION_ROOM_ZOOM "room_zoom"
 static const char *const room_zooms[][2] = {
@@ -139,6 +144,41 @@ static int adaptive_preview(int *width, int *height, int *screen_w, int *screen_
     *screen_h = mode.h;
     gb_custom_fill_size(mode.w, mode.h, shantae_view_height(), 1, width, height);
     return 1;
+}
+
+/* The main screen's desktop size; 0 x 0 when unknown. */
+static void screen_size(int *width, int *height) {
+    SDL_DisplayMode mode;
+    *width = *height = 0;
+    if (SDL_WasInit(SDL_INIT_VIDEO) && SDL_GetDesktopDisplayMode(0, &mode) == 0) {
+        *width = mode.w;
+        *height = mode.h;
+    }
+}
+
+/* Zoom: the size Original (the original's 144 rows) or Default (240) gives
+ * the view, keeping its shape. Adaptive keeps its width and takes it as the
+ * least height. */
+static void zoom_size(int original, int *width, int *height) {
+    const int w = shantae_view_width(), h = shantae_view_height();
+    int sw, sh;
+    if (shantae_view_adaptive()) {
+        *width = w;
+        *height = original ? SHANTAE_VIEW_MIN_HEIGHT : ZOOM_DEFAULT_HEIGHT;
+    } else if (original) {
+        screen_size(&sw, &sh);
+        shantae_view_original_size(w, h, sw, sh, width, height);
+    } else {
+        shantae_view_size_at_height(w, h, ZOOM_DEFAULT_HEIGHT, width, height);
+    }
+}
+static const char *zoom_value(void) {
+    int w, h;
+    zoom_size(1, &w, &h);
+    if (w == shantae_view_width() && h == shantae_view_height()) return ZOOM_ORIGINAL;
+    zoom_size(0, &w, &h);
+    if (w == shantae_view_width() && h == shantae_view_height()) return ZOOM_DEFAULT;
+    return ASPECT_CUSTOM;
 }
 
 static int is_feature(const char *package_id, const char *feature_id) {
@@ -320,10 +360,11 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
             snprintf(out->name, sizeof(out->name), "Expanded view (%d x %d)", width, height);
         snprintf(out->description, sizeof(out->description),
                  "Show more of the world above, below, and on both sides, with the HUD at the "
-                 "bottom. Choose Adaptive to fill the whole screen or window, or an aspect ratio "
-                 "and then a width and height a pixel at a time. Rooms smaller than the view zoom "
-                 "in to fill the screen (Room zoom). Experimental; menus and unsupported scenes "
-                 "use the original view.");
+                 "bottom. Choose Adaptive to fill the whole screen or window, or an aspect ratio, "
+                 "then Zoom: Original keeps the game as large as the original and only adds to "
+                 "the sides; Default and taller heights show more above and below. Rooms smaller "
+                 "than the view zoom in to fill the screen (Room zoom). Experimental; menus and "
+                 "unsupported scenes use the original view.");
         snprintf(out->group, sizeof(out->group), "Display");
         if (!shantae_expanded_view())
             snprintf(out->status, sizeof(out->status), "Off: original 160 x 144");
@@ -336,7 +377,7 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
         else
             snprintf(out->status, sizeof(out->status), "On: %d x %d world view (%s)", width, height, aspect);
         out->enabled = shantae_expanded_view();
-        out->option_count = 7;
+        out->option_count = 8;
         return 1;
     }
     snprintf(out->id, sizeof(out->id), "%s", FEATURE_ID);
@@ -373,15 +414,29 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->description, sizeof(out->description),
                  "Adaptive fills the whole screen or window, whatever its shape, and follows it "
                  "when the window is resized. A ratio sets the width for that shape at the "
-                 "current height; NES 16:15 at 240 tall is 256 x 240, and 16:9 at 144 tall (the "
-                 "original's height) is 256 x 144, the original's zoom with more to either side. "
-                 "Changing the width or height afterwards makes the shape custom.");
+                 "current height: NES 16:15 at 240 tall is 256 x 240, 16:9 is 426 x 240. Zoom "
+                 "and Height keep the shape (16:9 at the Original zoom is 256 x 144); changing "
+                 "the width makes it custom.");
         snprintf(out->value, sizeof(out->value), "%s",
                  adaptive ? ASPECT_ADAPTIVE : a ? a->id : ASPECT_CUSTOM);
         snprintf(out->default_value, sizeof(out->default_value), "16:15");
         out->type = RECOMP_MOD_OPTION_CHOICE;
         out->choice_count = shantae_view_aspect_count() + 2;
     } else if (index == 1) {
+        snprintf(out->id, sizeof(out->id), OPTION_ZOOM);
+        snprintf(out->label, sizeof(out->label), "Zoom");
+        snprintf(out->description, sizeof(out->description),
+                 "Original: 144 tall like the original screen, so the game is as large as in the "
+                 "original and the view only adds to the sides, dialogue and towns included "
+                 "(16:9 is 256 x 144; a custom shape takes the screen's). Default: 240 tall, "
+                 "showing more above and below with everything smaller. Custom: the Height "
+                 "below. The title screen and menus always show the original picture, so the "
+                 "zoom shows once play starts.");
+        snprintf(out->value, sizeof(out->value), "%s", zoom_value());
+        snprintf(out->default_value, sizeof(out->default_value), ZOOM_DEFAULT);
+        out->type = RECOMP_MOD_OPTION_CHOICE;
+        out->choice_count = 3;
+    } else if (index == 2) {
         snprintf(out->id, sizeof(out->id), OPTION_WIDTH);
         snprintf(out->label, sizeof(out->label), "Width (pixels)");
         if (preview)
@@ -403,7 +458,7 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         out->max_value = SHANTAE_VIEW_MAX_WIDTH;
         out->step = 1;
         out->disabled |= adaptive;
-    } else if (index == 2) {
+    } else if (index == 3) {
         snprintf(out->id, sizeof(out->id), OPTION_HEIGHT);
         snprintf(out->label, sizeof(out->label), adaptive ? "Least height (pixels)" : "Height (pixels)");
         if (adaptive)
@@ -417,11 +472,12 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
                      SHANTAE_VIEW_MIN_HEIGHT, SHANTAE_VIEW_MAX_HEIGHT);
         else
             snprintf(out->description, sizeof(out->description),
-                     "Game pixels tall, %d to %d, including the 16-pixel status bar. 144, the "
-                     "original screen's height, keeps its zoom and only adds to the sides, dialogue "
-                     "and towns included. For sharp pixels with pixel-perfect scaling, pick a height "
-                     "that divides your screen height evenly: 240 for 720p, 1440p and 4K; 270 for "
-                     "1080p and 4K; 360 for all four.",
+                     "Game pixels tall, %d to %d, including the 16-pixel status bar; an aspect "
+                     "ratio keeps its shape. 144, the original screen's height (Zoom: Original), "
+                     "keeps its zoom and only adds to the sides, dialogue and towns included. For "
+                     "sharp pixels with pixel-perfect scaling, pick a height that divides your "
+                     "screen height evenly: 240 for 720p, 1440p and 4K; 270 for 1080p and 4K; 360 "
+                     "for all four.",
                      SHANTAE_VIEW_MIN_HEIGHT, SHANTAE_VIEW_MAX_HEIGHT);
         snprintf(out->value, sizeof(out->value), "%d", height);
         snprintf(out->default_value, sizeof(out->default_value), "240");
@@ -429,7 +485,7 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         out->min_value = SHANTAE_VIEW_MIN_HEIGHT;
         out->max_value = SHANTAE_VIEW_MAX_HEIGHT;
         out->step = 1;
-    } else if (index == 3) {
+    } else if (index == 4) {
         snprintf(out->id, sizeof(out->id), OPTION_NATIVE);
         snprintf(out->group, sizeof(out->group), "Original view");
         snprintf(out->label, sizeof(out->label), "Original view scale");
@@ -444,7 +500,7 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->default_value, sizeof(out->default_value), "scaling_mode");
         out->type = RECOMP_MOD_OPTION_CHOICE;
         out->choice_count = 1 + 4 + native_most_scale() + 1;
-    } else if (index == 4) {
+    } else if (index == 5) {
         snprintf(out->id, sizeof(out->id), OPTION_ROOM_ZOOM);
         snprintf(out->group, sizeof(out->group), "Original view");
         snprintf(out->label, sizeof(out->label), "Room zoom");
@@ -460,7 +516,7 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->default_value, sizeof(out->default_value), "fill");
         out->type = RECOMP_MOD_OPTION_CHOICE;
         out->choice_count = 3;
-    } else if (index == 5) {
+    } else if (index == 6) {
         snprintf(out->id, sizeof(out->id), OPTION_UI);
         snprintf(out->group, sizeof(out->group), "Bottom UI");
         snprintf(out->label, sizeof(out->label), "Bottom UI size");
@@ -476,7 +532,7 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         snprintf(out->default_value, sizeof(out->default_value), "1");
         out->type = RECOMP_MOD_OPTION_CHOICE;
         out->choice_count = UI_CHOICES;
-    } else if (index == 6) {
+    } else if (index == 7) {
         snprintf(out->id, sizeof(out->id), OPTION_LIFT);
         snprintf(out->group, sizeof(out->group), "Bottom UI");
         snprintf(out->label, sizeof(out->label), "Dialogue box");
@@ -566,9 +622,40 @@ static int view_choice_get(int index, RecompLauncherCModChoice *out) {
     return 1;
 }
 
+/* Original, Default, then Custom (the Height as it is), each with the size it
+ * gives. */
+static int zoom_choice_get(int index, RecompLauncherCModChoice *out) {
+    static const char *const names[] = {"Original", "Default", "Custom"};
+    static const char *const values[] = {ZOOM_ORIGINAL, ZOOM_DEFAULT, ASPECT_CUSTOM};
+    int w = shantae_view_width(), h = shantae_view_height();
+    if (index < 0 || index > 2) return 0;
+    memset(out, 0, sizeof(*out));
+    if (index < 2) zoom_size(index == 0, &w, &h);
+    snprintf(out->value, sizeof(out->value), "%s", values[index]);
+    if (index == 2 && strcmp(zoom_value(), ASPECT_CUSTOM))
+        snprintf(out->label, sizeof(out->label), "Custom (the Height below)");
+    else if (shantae_view_adaptive())
+        snprintf(out->label, sizeof(out->label), "%s (%d tall)", names[index], h);
+    else
+        snprintf(out->label, sizeof(out->label), "%s (%d x %d)", names[index], w, h);
+    return 1;
+}
+
 static int view_set_option(const char *option_id, const char *value) {
     int width = shantae_view_width(), height = shantae_view_height(), sw, sh;
     if (strcmp(option_id, OPTION_NATIVE) == 0) return native_set_option(value);
+    if (strcmp(option_id, OPTION_ZOOM) == 0) {
+        if (strcmp(value, ZOOM_ORIGINAL) && strcmp(value, ZOOM_DEFAULT) && strcmp(value, ASPECT_CUSTOM)) {
+            snprintf(s_error, sizeof(s_error), "Unknown zoom '%s'.", value);
+            return 0;
+        }
+        /* Custom is the Height as it is. */
+        if (strcmp(value, ASPECT_CUSTOM)) {
+            zoom_size(strcmp(value, ZOOM_ORIGINAL) == 0, &width, &height);
+            shantae_set_view_size(width, height);
+        }
+        return 1;
+    }
     if (strcmp(option_id, OPTION_ROOM_ZOOM) == 0) {
         for (int i = 0; i < 3; ++i) {
             if (strcmp(value, room_zooms[i][0]) == 0) {
@@ -629,7 +716,7 @@ static int view_set_option(const char *option_id, const char *value) {
         shantae_set_view_size((int)number, height);
         shantae_set_view_adaptive(0);
     } else if (strcmp(option_id, OPTION_HEIGHT) == 0) {   /* the least height when adaptive */
-        shantae_set_view_size(width, (int)number);
+        shantae_set_view_height((int)number);
     } else {
         return 0;
     }
@@ -814,6 +901,8 @@ static int feature_choice_get(void *ctx, const char *package_id, const char *fea
         return view_choice_get(index, out);
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_NATIVE) == 0 && out)
         return native_choice_get(index, out);
+    if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_ZOOM) == 0 && out)
+        return zoom_choice_get(index, out);
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_ROOM_ZOOM) == 0 && out) {
         if (index < 0 || index >= 3) return 0;
         memset(out, 0, sizeof(*out));
