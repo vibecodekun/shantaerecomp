@@ -59,10 +59,10 @@ static const char *const room_zooms[][2] = {
 };
 #define OPTION_UI "ui_size"
 #define UI_CHOICES 9   /* auto, then 1x to 8x */
-#define OPTION_LIFT "dialogue"
-static const char *const lifts[][2] = {
-    {"cover", "Covers the floor, as in the original"},
-    {"lift", "Raises the world: the floor stays in view"},
+#define OPTION_UI_FIT "ui_fit"
+static const char *const ui_fits[][2] = {
+    {"cover", "Under it, as original"},
+    {"fit", "Fits above it"},
 };
 #define FEATURE_TEXT "instant_text"
 #define FEATURE_MOVES "smooth_moves"
@@ -533,17 +533,18 @@ static int view_option_get(int index, RecompLauncherCModOption *out) {
         out->type = RECOMP_MOD_OPTION_CHOICE;
         out->choice_count = UI_CHOICES;
     } else if (index == 7) {
-        snprintf(out->id, sizeof(out->id), OPTION_LIFT);
+        snprintf(out->id, sizeof(out->id), OPTION_UI_FIT);
         snprintf(out->group, sizeof(out->group), "Bottom UI");
-        snprintf(out->label, sizeof(out->label), "Dialogue box");
+        snprintf(out->label, sizeof(out->label), "World");
         snprintf(out->description, sizeof(out->description),
-                 "A dialogue box is taller than the status bar, and its black runs across the "
-                 "whole view: where the room's floor shows right above the status bar (standing "
-                 "at the bottom of a large area) it would cover the floor and Shantae. Raise "
-                 "eases the world up until the floor clears the box, and back down when it "
-                 "closes; Cover leaves the world where it is, as the original does.");
-        snprintf(out->value, sizeof(out->value), "%s", lifts[shantae_dialogue_lift() != 0][0]);
-        snprintf(out->default_value, sizeof(out->default_value), "lift");
+                 "The original's status bar hides the room's last rows, a dialogue box is "
+                 "taller still, and a bottom UI larger than 1x takes more of the picture. Fits "
+                 "keeps the whole room above it, from the sky to the ground under the floor: "
+                 "the world zooms out while a dialogue box is up, using any black around the "
+                 "picture first, and back in when it closes. Under it lays the bottom UI over "
+                 "the world's bottom, as the original does.");
+        snprintf(out->value, sizeof(out->value), "%s", ui_fits[shantae_ui_fit() != 0][0]);
+        snprintf(out->default_value, sizeof(out->default_value), "fit");
         out->type = RECOMP_MOD_OPTION_CHOICE;
         out->choice_count = 2;
     } else {
@@ -666,14 +667,14 @@ static int view_set_option(const char *option_id, const char *value) {
         snprintf(s_error, sizeof(s_error), "Unknown room zoom '%s'.", value);
         return 0;
     }
-    if (strcmp(option_id, OPTION_LIFT) == 0) {
+    if (strcmp(option_id, OPTION_UI_FIT) == 0) {
         for (int i = 0; i < 2; ++i) {
-            if (strcmp(value, lifts[i][0]) == 0) {
-                shantae_set_dialogue_lift(i);
+            if (strcmp(value, ui_fits[i][0]) == 0) {
+                shantae_set_ui_fit(i);
                 return 1;
             }
         }
-        snprintf(s_error, sizeof(s_error), "Unknown dialogue box setting '%s'.", value);
+        snprintf(s_error, sizeof(s_error), "Unknown setting for the world above the bottom UI '%s'.", value);
         return 0;
     }
     if (strcmp(option_id, OPTION_UI) == 0) {
@@ -910,11 +911,11 @@ static int feature_choice_get(void *ctx, const char *package_id, const char *fea
         snprintf(out->label, sizeof(out->label), "%s", room_zooms[index][1]);
         return 1;
     }
-    if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_LIFT) == 0 && out) {
+    if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_UI_FIT) == 0 && out) {
         if (index < 0 || index > 1) return 0;
         memset(out, 0, sizeof(*out));
-        snprintf(out->value, sizeof(out->value), "%s", lifts[index][0]);
-        snprintf(out->label, sizeof(out->label), "%s", lifts[index][1]);
+        snprintf(out->value, sizeof(out->value), "%s", ui_fits[index][0]);
+        snprintf(out->label, sizeof(out->label), "%s", ui_fits[index][1]);
         return 1;
     }
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_UI) == 0 && out) {

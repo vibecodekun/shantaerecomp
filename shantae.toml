@@ -313,6 +313,26 @@ bank = 6
 addr = 0x64D3
 note = "AND $02 on FF8C in the crawl routine 06:648B: B pressed"
 
+# Under a low ceiling (CB41 set) the crawl routine jumps past its B test
+# (JR NZ at 06:64CF to 06:6513), where the crouch routine still has its own
+# (06:60EF), so B while crawling there was lost. The hooks start the crouch
+# whip there as 06:6552 does: its script, no step on the press's tick, and
+# the script kept over the crouch's that the routine sets with no direction.
+[[imm_override]]
+bank = 6
+addr = 0x6515
+note = "AND $20 on FF8B in the crawl routine, under a low ceiling: B pressed starts the crouch whip (hook only)"
+
+[[imm_override]]
+bank = 6
+addr = 0x653F
+note = "LD A,$44: low byte of the crouch's script (06:6044) the crawl sets with no direction, or the crouch whip's"
+
+[[imm_override]]
+bank = 6
+addr = 0x6542
+note = "LD A,$60: its high byte"
+
 # An air whip that lands resumes on the ground: script 06:5DCB, or 06:6681
 # with Down held. With "cancel" and a direction held she runs or crawls on.
 [[imm_override]]

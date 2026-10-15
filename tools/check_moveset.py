@@ -386,6 +386,57 @@ def check_crawl(off, slide, cancel, plain, state):
           "(slide) or without one (cancel). With the crawl option off: the slide at crawl speed, then the run")
 
 
+def check_low_ceiling(off, slide, cancel, nolag, state):
+    """The user's report on 2026-10-15 (their state2): under a low ceiling the crawl routine jumps past its
+    B test (06:64CF), so a whip pressed while crawling there was lost, and only one from crouching still
+    (the crouch routine tests B there, 06:60EF) slid."""
+    def crawl(g):
+        g.load(state)
+        assert g.mem(0xCB41, 1)[0] and g.mem(0xCB54, 1)[0] == 2, (g.name, "not under the corridor's ceiling")
+        f = g.play("R", 12)
+        assert routines(f)[-1] == CRAWL, (g.name, "the crawl", [hex(r) for r in routines(f)])
+        return where(g)
+    at = crawl(off)
+    f = off.play("BR", 30)
+    assert CROUCH_WHIP not in routines(f) and hits(f) == [] and steps(f, at) == [CRAWLS] * 30, \
+        ("the original whipped while crawling under the ceiling", routines(f), steps(f, at))
+    crawl(off)
+    f = off.play("B", 1) + off.play("-", 30)
+    assert CROUCH_WHIP not in routines(f) and hits(f) == [], ("the original whipped there with B alone", routines(f))
+    at = crawl(slide)
+    f = slide.play("BR", 40)
+    assert routines(f) == [CROUCH_WHIP, CRAWL] and all(x["stance"] == 2 for x in f), [hex(r) for r in routines(f)]
+    assert steps(f, at) == [WALKS] * 40 and hits(f) == [1], ("slide: B while crawling", steps(f, at), hits(f))
+    # B alone on a tick of the crawl routine: with its +$65 set (it counts it down, 06:6525) and clear
+    # (it sets the crouch's script, 06:6531).
+    for g, counted in ((slide, 1), (slide, 0), (nolag, 0)):
+        crawl(g)
+        if counted:
+            g.c.command("poke", addr=hex(word(g.mem(0xCA13, 2), 0) + 0x65), hex="01", wram_bank=3)
+        s = g.slot()
+        assert word(s, 0x1B) == CRAWL and bool(s[0x65]) == bool(counted), (g.name, "not crawling", s[0x65])
+        at = where(g)
+        f = g.play("B", 1) + g.play("-", 30)
+        assert CROUCH_WHIP in routines(f) and hits(f) == [1] and steps(f, at) == [0] * 31, \
+            (g.name, "B alone in the crawl", counted, [hex(r) for r in routines(f)], steps(f, at), hits(f))
+    at = crawl(nolag)
+    f = nolag.play("BR", 40)
+    assert routines(f) == [CROUCH_WHIP, CRAWL], [hex(r) for r in routines(f)]
+    assert steps(f, at) == [0] + [WALKS] * 39 and hits(f) == [1], \
+        ("slide without Reduce input lag: B while crawling", steps(f, at), hits(f))
+    at = crawl(cancel)
+    f = cancel.play("BR", 30)
+    assert routines(f) == [CRAWL] and steps(f, at) == [WALKS] * 30 and hits(f) == [], \
+        ("cancel: B while crawling", routines(f), steps(f, at), hits(f))
+    crawl(cancel)
+    f = cancel.play("B", 1) + cancel.play("-", 30)
+    assert CROUCH_WHIP in routines(f) and hits(f) == [1], ("cancel: B alone in the crawl", routines(f))
+    print("PASS: under a low ceiling (corridor.state). Original: B while crawling is lost. With the feature: "
+          "the crouch whip from the press, sliding 1 pixel a frame with B held (from the next frame without "
+          "Reduce input lag) into the crawl, and on the spot with B alone, whether the crawl's +$65 is counting down or not; "
+          "cancel crawls on with a direction")
+
+
 ROUTE = [("-", 4), ("BR", 34), ("ABR", 20), ("R", 12), ("BR", 20), ("-", 14), ("D", 8), ("DL", 16),
          ("BDL", 34), ("L", 10), ("AL", 6), ("ABL", 30), ("BL", 30), ("B", 30), ("AB", 2), ("ABR", 24), ("-", 30)]
 
@@ -425,6 +476,8 @@ def main():
     ap.add_argument("state", type=Path, nargs="?", default=ROOT / "logs/states/moveset.state")
     ap.add_argument("--form-state", type=Path, default=ROOT / "logs/states/tinkerbat-gap.state",
                     help="a state in another form, which the feature must leave alone")
+    ap.add_argument("--corridor-state", type=Path, default=ROOT / "logs/states/corridor.state",
+                    help="crouched under a low ceiling")
     ap.add_argument("--exe", type=Path, default=ROOT / "generated/build/shantae.exe")
     ap.add_argument("--original", type=Path, help="an exe from before the feature, to compare the feature off with")
     ap.add_argument("--port", type=int, default=14400)
@@ -449,6 +502,10 @@ def main():
             check_land_dance(off, slide, nolag, args.state)
             check_ledge(slide, args.state)
             check_crawl(off, slide, cancel, plain, args.state)
+            if args.corridor_state.exists():
+                check_low_ceiling(off, slide, cancel, nolag, args.corridor_state)
+            else:
+                print(f"SKIP: a low ceiling (no {args.corridor_state.name})")
             if args.form_state.exists():
                 check_form(off, game("slide, transformations off", whip_moving=SLIDE, smooth_forms=0), args.form_state)
             else:

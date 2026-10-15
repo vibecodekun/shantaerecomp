@@ -55,7 +55,8 @@ code was recompiled from that exact ROM.
 | `tools/check_eyes.py` | The third labyrinth's eye puzzle with the expanded view: the eye settles where its jar was, the socket takes it, the statue gives its key, and another puzzle in view is left alone, from a saved state |
 | `tools/check_pictures.py` | The fourth labyrinth's picture puzzles and key doors with the expanded view against the original, pixel for pixel: each picture and door shows its own state, the puzzle is solved and its key taken, from a saved state |
 | `tools/make_states.py` | The saved states the next three checks play, made from a cold boot with WayForward's debug mode (the title code, Start Debug Game with every dance learned, a scene of the debug grid, the debug flight) into `logs/states/` |
-| `tools/check_moveset.py` | Shantae's moves with "Smoother movement" beside the original, frame for frame: the whip slide and cancel, air speed, a whip that lands or slides off a ledge, B and Select as she lands from a standing jump, the crawl; and the feature off against the previous release, from a saved state |
+| `tools/check_ui_fit.py` | The world above the bottom UI in every scene of the debug grid, in a hidden window and three setups: the floor above the bottom UI, a dialogue box's rows of play kept above it |
+| `tools/check_moveset.py` | Shantae's moves with "Smoother movement" beside the original, frame for frame: the whip slide and cancel, air speed, a whip that lands or slides off a ledge, B and Select as she lands from a standing jump, the crawl, the crouch whip under a low ceiling; and the feature off against the previous release, from a saved state |
 | `tools/check_forms.py` | The transformations with "Smoother movement" beside the original: the monkey's and tinkerbat's slide (from standing and walking), cancel and air speed, the harpy's talons in her run and while flapping, the tinkerbat's box in the ice tower's hidden passage and the pipe maze, the pillar, the charges, the elephant's turn, landing and stomp, climbing with B, the spider's run and shot, webs, and the spider's shot in the expanded view; Transformations off against the previous release, from four saved states |
 | `tools/check_dance.py` | "Easier dancing": every dance of the ROM's table on its last step, skipped and restarted steps, the original rhythm, a slider against the new monkey (the blink once its silhouette ends) and against Shantae turned back, with and without the blink, and every transformation's blink; the feature off against the previous release, from a saved state |
 | `tools/check_rom_gate.py` | Only the ROM the build was recompiled from starts: the launcher's "ROM verified" line and PLAY, and the runtime's own check, for the ROM, bad dumps made from it, and optionally another game |
@@ -169,9 +170,11 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
   at walking speed whatever is held; a whip begun in the air and landed finishes on
   the spot; a B or Select pressed as she lands from a standing jump, or in the 24
   frames after, is lost (her landing takes A, a direction or Down, but no B or
-  Select); and the crawl moves half a pixel a frame, standing up into a run when B is
-  held. With this on, holding B runs at once, B whips and Select starts a dance from
-  the frame she lands, and three options choose the rest (details and addresses in
+  Select); the crawl moves half a pixel a frame, standing up into a run when B is
+  held; and in a corridor too low to stand in, B while crawling is lost (only a
+  crouch held still whips there). With this on, holding B runs at once, B whips and
+  Select starts a dance from the frame she lands, B whips while crawling under a low
+  ceiling as anywhere else, and three options choose the rest (details and addresses in
   [docs/moveset.md](docs/moveset.md)):
   - **Whip on the move**: what B does while a direction is held, standing or crouched.
     *Slide* (default): the whip comes out and hits as usual while she keeps moving, at
@@ -251,9 +254,12 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
   (the default) with the view's own pixels, 2x–8x larger, or Auto as large as in
   the original picture at any view size, the same size on screen when a room zooms
   in; other sizes are drawn through the shader at their own pixel size, with the
-  world kept above them. **Dialogue box**: *Raises the world* (default) eases the
-  world up while a dialogue box would cover the floor (standing at the bottom of a
-  large area), *Covers the floor* leaves it as the original. The in-game Esc →
+  world kept above them. **World**: *Fits above it* (default) keeps the whole room
+  above the bottom UI, sky to floor, the ground the original's status bar hides
+  included: while a dialogue box is up the world zooms out to make room for it
+  (into any black around the picture first), and a status bar larger than 1x gets
+  its room in large areas too, in rooms of every size; *Under it, as original* lays
+  the bottom UI over the world's bottom. The in-game Esc →
   Shantae section has the same controls, and a size changed there applies at once;
   turning the view on or off takes effect on the next launch.
 
@@ -276,7 +282,8 @@ brings the slowdown back and `reduce_input_lag=0` the original input timing;
 `air_speed_b`, `fast_crawl` and `smooth_forms` its options; `easy_dance=0` the original
 dance, with `quick_steps` and `transform_invincible` its options; `instant_text=0`
 the original text; `ui_scale` the bottom UI's size (0 Auto, 1 the default, up to 16)
-and `dialogue_lift=0` a dialogue box covering the floor. Menus retain their original
+and `ui_fit=0` the bottom UI covering the world (`dialogue_lift=0` from earlier
+releases reads the same). Menus retain their original
 centered layout; the dialogue box sits at the bottom of the wide picture like the
 status bar, at the bottom UI's size, so talking never zooms in and out.
 Towns are shown wide: their street wraps at 640 pixels like their camera, and the

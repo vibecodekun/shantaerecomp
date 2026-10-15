@@ -81,7 +81,8 @@ round down), and not at all where no side fits: it went to the original's
 scale there, so a large area zoomed all the way in. **Off** is the view as it
 is. The zoom never goes past the original screen (the picture stays at least
 160×144, but for a town's: see Towns) nor below the view's own scale, and
-never shows more than the view. At 1920×1080 on a 1080p screen with the bottom
+never shows more than the view, but to make room for the bottom UI (World
+above the bottom UI, below). At 1920×1080 on a 1080p screen with the bottom
 UI at 1x: the 192-wide hold of Risky's ship and the 319×128 corridors go to 7×
 (274×154 of the world), the 511×255 rooms and the 2047×255 corridor to 4×
 (480×270; Whole room too), the opening area (3071×471) and other corridors
@@ -174,7 +175,8 @@ picture, which zoomed in from the room's scale: the user's state1 of
 the box took the screen to 7.5× and back. The room zoom does not change while
 a dialogue box is up, and the room is the status bar's (the lines it had, kept
 while the box stands in for it), so the room does not move by the bar's rows
-either; the world rises above the box instead (Dialogue box below). Of the 68 debug-grid scenes at 256×144, every dialogue
+either; the world makes room for the box instead (World above the bottom UI
+below). Of the 68 debug-grid scenes at 256×144, every dialogue
 over a room the view widens, towns included, stays wide; the others are over
 one-screen rooms and story pictures, which keep the original view.
 
@@ -203,24 +205,75 @@ draws layers (headless runs, a preset that draws a bezel over the whole
 window) the view draws the UI itself, as many whole times over as fit, at
 least once.
 
-**Dialogue box.** A dialogue box is 40 lines to the status bar's 16, and its
-black runs across the whole view, so standing at the bottom of a large area
-(the camera at the room's bottom, where Shantae's floor is right above the
-status bar) or in a room the zoom fits to the picture, it covered the floor
-and Shantae across the whole width. With `dialogue_lift=1` (the default, the
-Bottom UI's **Dialogue box: Raises the world**) the world eases up, a third of
-the way each guest frame, until the room's floor clears the box, and back
-down when it closes; the rise is at most the rows the box takes beyond the
-bar's, what goes off the top is the room's own and what comes in under the
-floor is under the box. A floor below the picture raises nothing. The floor
-may be a row or two under the bar where the zoom fits a room to the window
-(the bar's rows are whole): in the user's state1 of 2026-10-13 (the mayor's
-"Stay put!", 1920×1080 at 1.37×, the bottom UI at 2x) a room one row taller
-than the space above the bar was not raised at all on the first pass, and was
-after a rewind left another zoom; the test is now the floor anywhere in the
-picture. `dialogue_lift=0` covers the floor as the original does. A town's
-panel is its status bar and raises nothing. `shantae_view_info` reports
-`lift` (rows), `ui` (window pixels per UI pixel) and `ui_rows`.
+**World above the bottom UI.** The original's status bar covers the room's last 16
+rows (the camera's greatest y puts them under it), and a dialogue box is 40
+lines to the bar's 16, its black across the whole view: standing at the bottom
+of a large area (the camera at the room's bottom) or in a room the zoom fits
+to the picture, the bar covered the ground under the floor (the opening's
+purple ground under the grass at the bridge, debug grid I0, the user's report
+of 2026-10-15) and a box the floor and Shantae. A bottom UI larger than the
+view's pixels takes more of the picture than the original's too.
+
+With `ui_fit=1` (the default, the Bottom UI's **World: Fits above it**) the
+whole room is above the bottom UI at its size. Its rows under the status bar
+are its world (`under` in `room_at`: all 16 where the room is the camera's own
+range, none where a picture ends above the bar, as the beach's and the water
+tower's do, whose bottoms the camera's greatest y shows; and `room_under`: none
+where the first of them is one color across the room, whose picture ends above
+the bar there while the map goes on below with another place: Risky's hold,
+one screen tall, has the black of the hull there and then the top of another
+deck, which stood as a strip above the bottom UI), and the zoom fits them with
+the rest: Fill's height is the room's whole height above the bottom
+UI, with a row to spare since the picture's rows round down and the bottom
+UI's up, and the zoom's limit is no longer the original screen alone but the
+camera's whole screen above the bottom UI (with less, view_origin centered the
+camera's screen and cut the floor of Risky's hold, 192×143, by 2 rows at 7.5×
+above the bar at 2x of a 1920×1080 view, where the camera never moves: 7.23×
+now). The layout keeps the room's bottom right above the bottom UI. The world
+the picture shows in play stays whole above a larger bottom UI, from its top:
+the room's rows that fit at the zoom (whole rows, as the picture draws them),
+or in a room the view does not zoom to, the view's own rows above a bar of the
+view's pixels (`fit_rows`). A bottom UI that leaves less room than that, a
+dialogue box or a status bar larger than the view's pixels in a room shown at
+the view's scale, grows the picture, into the window's black first (Pixel
+Perfect's margin around the view, a view wider than the screen's shape), and
+then the zoom eases out over the room zoom's 16 frames until they fit, and
+back in when it closes; while it eases out the box covers the rows still to
+come, never the top. With Pixel Perfect the zoom goes to a smaller whole scale
+only when the box would cover more than a tile (8 rows) of them at the one in
+play (`FIT_WHOLE_SLACK`): the intro's box at 4× of the 256×240 view is 2 rows
+short of the window (232 rows above its 8-line strip, then 40), and 3× is a
+quarter of the picture. The zoom in play and its rows stay as they were while
+the box is up. The picture may then be larger than the view (the runtime takes
+any size up to the maximum from `gb_custom_fit`), and activation follows it.
+The box stands in for the bottom UI the scene showed before it: the status
+bar, the opening map's 8-line letterbox strip (Risky's hold, debug scene 03,
+keeps 135 rows of world above its box), or none, where the whole picture is
+the world of play (the debug grid's 3D opens with no window before its box,
+which then zooms out to keep it, with Pixel Perfect from 4× to 3× at 256×240).
+
+It replaces `dialogue_lift`, which eased the world up until the floor cleared
+a box: what went off the top was the sky and the ceilings. In the user's
+state1 of 2026-10-15 (the mayor's "Stay put!" on the town's roof, 1920×1080
+at 1.37×, the bottom UI at 2x) the box took 80 window rows to the bar's 32 and
+the world rose 35 rows, the tops of the towers above the picture.
+`ui_fit=0` (**Under it, as original**) lays the bottom UI over the world as the
+original does, the room's last 16 rows under the bar; `dialogue_lift=0` in an
+older `shantae.ini` reads as that. A town's panel is its status bar, its art
+above it already. `shantae_view_info` reports `fit_rows`, `fit_play` (the zoom
+in play), `layout` (the rows the world is laid out above beyond the room's own
+rows under the bar), `world` (the picture rows of the room's first world row,
+of the row under its last, and of the bottom UI's top), `ui` (window pixels
+per UI pixel) and `ui_rows`.
+
+`python tools/check_ui_fit.py` loads every scene of the debug grid in a hidden
+window (the bottom UI the window's layer, as players see it) in three setups:
+1920×1080 in Aspect Fit with the bottom UI at 2x, the default 256×240 in Pixel
+Perfect at 1x, and 426×240 in Aspect Fit on Auto. It takes the frame 30 frames
+after a dialogue box comes up and one back in play after the dialogue: where
+the view draws the room, its floor is above the bottom UI, and with a box up
+the rows of play are all above it (a tile's slack with Pixel Perfect) and the
+zoom is no more than in play.
 
 Rooms are the practical limit: a view larger than its room shows the room
 centered (the opening bridge is about 3070×600, so 3840×1080 shows all of it).

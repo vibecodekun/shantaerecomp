@@ -62,6 +62,10 @@ typedef struct {
     Box box;
     int masked;              /* sectors lists the pictures kept */
     uint32_t sectors[32];    /* bit x of row y: sector x,y is drawn */
+    /* The rows at the box's bottom under the status bar that are its world:
+     * all of them in the camera's own range, none where a picture ends above
+     * the bar (the camera's greatest y shows its bottom there). */
+    int under;
 } Room;
 
 /* Pictures that touch another in their map. The intro's view of Shantae's
@@ -202,6 +206,7 @@ static Room room_at(const GBContext *ctx, const uint8_t *ram, int cx, int cy, in
     room.box = (Box){(int)word(ram + 0x9db), (int)word(ram + 0x9df), (int)word(ram + 0x9dd) + 160,
                      (int)word(ram + 0x9e1) + 144};
     room.masked = 0;
+    room.under = hud;
     const unsigned map = ram[0x9f9] << 8 | ram[0x9fa];
     const Box screen = {cx, cy, cx + 160, cy + 144 - hud};
     Box pictured = screen;
@@ -232,6 +237,7 @@ static Room room_at(const GBContext *ctx, const uint8_t *ram, int cx, int cy, in
     }
     if (found) {
         /* The camera's greatest y shows a picture's bottom above the status bar. */
+        const int picture_bottom = pictured.y1;
         pictured.y1 += hud;
         Box b = room.box;
         if (b.x0 < pictured.x0) b.x0 = pictured.x0;
@@ -245,6 +251,7 @@ static Room room_at(const GBContext *ctx, const uint8_t *ram, int cx, int cy, in
         if (b.x1 > room.box.x1) b.x1 = room.box.x1;
         if (b.y1 > room.box.y1) b.y1 = room.box.y1;
         if (b.x0 < b.x1 && b.y0 < b.y1) room.box = b;
+        room.under = clamp(picture_bottom - (room.box.y1 - hud), 0, hud);
     }
     if (town_room(ram)) {
         /* A town's street wraps (world_tile), so no side ends it. Its art
@@ -258,6 +265,7 @@ static Room room_at(const GBContext *ctx, const uint8_t *ram, int cx, int cy, in
         const int y = (int)word(ram + 0x9df);
         room.box = (Box){cx - SHANTAE_VIEW_MAX_WIDTH, y, cx + 160 + SHANTAE_VIEW_MAX_WIDTH, y + TOWN_ART};
         room.masked = 0;
+        room.under = 0;
     }
     return room;
 }

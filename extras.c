@@ -90,7 +90,7 @@ static int s_native_scaling = GB_CUSTOM_NATIVE_SCALING_MODE;
 static int s_native_scale = 1;
 static int s_room_zoom = SHANTAE_ROOM_ZOOM_FILL;
 static int s_ui_scale = 1;
-static int s_dialogue_lift = 1;
+static int s_ui_fit = 1;
 static int s_remove_slowdown = 1;
 static int s_reduce_input_lag = 1;
 static int s_smooth_moves = 1;
@@ -143,8 +143,11 @@ static void load_settings(void) {
             s_room_zoom = clamp_int(value, SHANTAE_ROOM_ZOOM_OFF, SHANTAE_ROOM_ZOOM_WHOLE);
         } else if (sscanf(line, "ui_scale=%d", &value) == 1) {
             s_ui_scale = clamp_int(value, SHANTAE_UI_AUTO, SHANTAE_UI_MAX_SCALE);
+        } else if (sscanf(line, "ui_fit=%d", &value) == 1) {
+            s_ui_fit = value != 0;
         } else if (sscanf(line, "dialogue_lift=%d", &value) == 1) {
-            s_dialogue_lift = value != 0;
+            /* Until v0.1.17: 0 covered the floor, as ui_fit=0 does. */
+            s_ui_fit = value != 0;
         } else if (sscanf(line, "remove_slowdown=%d", &value) == 1) {
             s_remove_slowdown = value != 0;
         } else if (sscanf(line, "reduce_input_lag=%d", &value) == 1) {
@@ -181,8 +184,8 @@ static void save_settings(void) {
     fprintf(f, "original_gbc_colors=%d\n", s_original_colors);
     fprintf(f, "expanded_view=%d\nview_width=%d\nview_height=%d\nview_adaptive=%d\n",
             s_expanded_view, s_view_width, s_view_height, s_view_adaptive);
-    fprintf(f, "native_scaling=%d\nnative_scale=%d\nroom_zoom=%d\nui_scale=%d\ndialogue_lift=%d\n", s_native_scaling,
-            s_native_scale, s_room_zoom, s_ui_scale, s_dialogue_lift);
+    fprintf(f, "native_scaling=%d\nnative_scale=%d\nroom_zoom=%d\nui_scale=%d\nui_fit=%d\n", s_native_scaling,
+            s_native_scale, s_room_zoom, s_ui_scale, s_ui_fit);
     fprintf(f, "remove_slowdown=%d\n", s_remove_slowdown);
     fprintf(f, "reduce_input_lag=%d\n", s_reduce_input_lag);
     fprintf(f, "smooth_moves=%d\nwhip_moving=%d\nair_speed_b=%d\nfast_crawl=%d\nsmooth_forms=%d\n", s_smooth_moves,
@@ -300,9 +303,9 @@ void shantae_set_ui_scale(int scale) {
     s_ui_scale = clamp_int(scale, SHANTAE_UI_AUTO, SHANTAE_UI_MAX_SCALE);
     save_settings();
 }
-int shantae_dialogue_lift(void) { load_settings(); return s_dialogue_lift; }
-void shantae_set_dialogue_lift(int on) {
-    load_settings(); s_dialogue_lift = on != 0; save_settings();
+int shantae_ui_fit(void) { load_settings(); return s_ui_fit; }
+void shantae_set_ui_fit(int on) {
+    load_settings(); s_ui_fit = on != 0; save_settings();
 }
 
 int shantae_gba_enhanced(void) {

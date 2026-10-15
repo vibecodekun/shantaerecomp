@@ -30,10 +30,20 @@ one with that inventory.
 - web.state: scene 42 (map 67:85, as the user's state3), set down at
   4128,1400 in her base form, on a floor in front of a wall of web tiles ($64)
   the spider climbs.
+- corridor.state: scene 01 (map 50:4A, the first labyrinth, as the user's
+  state2 of 2026-10-15), her base form crouched at 2647,3096 in a corridor
+  one tile high (the low ceiling CB41 set), with room to crawl from x 2583 to
+  2930. The scene starts at the labyrinth's entrance, a one-screen room
+  (548-707 x 1083-1226) whose gate at the top right is crouch-whipped and
+  crawled through in play; flown to 680,1100 she passes it and drops into the
+  labyrinth's own room (16-4096 x 256-3856), and a second flight takes her to
+  the corridor.
 
-Writes logs/states/ (or --out); never touches user saves or settings.
+Writes logs/states/ (or --out); never touches user saves or settings. --only
+makes the states named, from the debug-grid.state already there.
 
     python tools/make_states.py
+    python tools/make_states.py --only corridor.state
 """
 import argparse
 from pathlib import Path
@@ -167,11 +177,71 @@ def save(g, path, at, form=0):
     print(f"{Path(path).name}: map {g.mem(0xC9F9, 2).hex()}, at {at[0]},{at[1]}, form {form}")
 
 
+def pit(name, x):
+    def make(g, grid, out):
+        scene(g, grid, 0x1A)
+        assert where(g) == (264, 1960), ("scene 1A", where(g))
+        clear_pit(g)
+        walk_to(g, x - 20)
+        walk_to(g, x)   # from the left, so that she faces right
+        press(g, "-", 30)
+        save(g, out / name, (x, 1984))
+    return make
+
+
+def tinkerbat_gap(g, grid, out):
+    scene(g, grid, 0x3A)
+    fly_to(g, 5245, 1160)
+    transform(g, TINKERBAT_SCRIPT, TINKERBAT)
+    save(g, out / "tinkerbat-gap.state", (5245, 1176), TINKERBAT)
+
+
+def pillar(g, grid, out):
+    scene(g, grid, 0x3C)
+    fly_to(g, 2194, 1928)
+    for _ in range(12):   # her remark: B held runs a line out, a new B the next
+        press(g, "B", 40)
+        press(g, "-", 4)
+    transform(g, TINKERBAT_SCRIPT, TINKERBAT)
+    found = [s for s in objects(g, 0x16) if (s[1], s[2]) == (2248, 1912)]
+    assert found and g.mem(0xC00E, 1)[0] == 3, ("the pillar and its counter", objects(g, 0x16))
+    g.c.command("poke", addr="0xc00e", hex="04")
+    press(g, "-", 200)   # it rises
+    save(g, out / "pillar.state", (2194, 1944), TINKERBAT)
+
+
+def web(g, grid, out):
+    scene(g, grid, 0x42)
+    fly_to(g, 4128, 1384)
+    save(g, out / "web.state", (4128, 1400))
+
+
+def corridor(g, grid, out):
+    scene(g, grid, 0x01)
+    for _ in range(10):   # the remark at the entrance
+        press(g, "B", 40)
+        press(g, "-", 4)
+    fly_to(g, 680, 1100)   # past the gate, into the labyrinth
+    press(g, "-", 120)
+    fly_to(g, 2647, 3088)
+    press(g, "D", 30)
+    press(g, "-", 30)
+    assert g.mem(0xCB41, 1)[0] and g.mem(0xCB54, 1)[0] == 2, "not crouched under the corridor's ceiling"
+    save(g, out / "corridor.state", (2647, 3096))
+
+
+STATES = {"moveset.state": pit("moveset.state", 393), "dance.state": pit("dance.state", 400),
+          "tinkerbat-gap.state": tinkerbat_gap, "pillar.state": pillar, "web.state": web,
+          "corridor.state": corridor}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--exe", type=Path, default=ROOT / "generated/build/shantae.exe")
     ap.add_argument("--out", type=Path, default=ROOT / "logs/states")
     ap.add_argument("--port", type=int, default=14680)
+    ap.add_argument("--only", nargs="+", choices=sorted(STATES), metavar="NAME",
+                    help="make only these, from the debug-grid.state already in --out")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     grid = args.out / "debug-grid.state"
@@ -179,34 +249,12 @@ def main():
         # The original moves and dance, so that the routes below are the game's own.
         g = Game(tmp, "states", args.exe.resolve(), args.port, smooth_moves=0, easy_dance=0)
         try:
-            debug_grid(g, grid)
-            print(f"{grid.name}: the scene grid, debug mode on")
-            for name, x in (("moveset.state", 393), ("dance.state", 400)):
-                scene(g, grid, 0x1A)
-                assert where(g) == (264, 1960), ("scene 1A", where(g))
-                clear_pit(g)
-                walk_to(g, x - 20)
-                walk_to(g, x)   # from the left, so that she faces right
-                press(g, "-", 30)
-                save(g, args.out / name, (x, 1984))
-            scene(g, grid, 0x3A)
-            fly_to(g, 5245, 1160)
-            transform(g, TINKERBAT_SCRIPT, TINKERBAT)
-            save(g, args.out / "tinkerbat-gap.state", (5245, 1176), TINKERBAT)
-            scene(g, grid, 0x3C)
-            fly_to(g, 2194, 1928)
-            for _ in range(12):   # her remark: B held runs a line out, a new B the next
-                press(g, "B", 40)
-                press(g, "-", 4)
-            transform(g, TINKERBAT_SCRIPT, TINKERBAT)
-            pillar = [s for s in objects(g, 0x16) if (s[1], s[2]) == (2248, 1912)]
-            assert pillar and g.mem(0xC00E, 1)[0] == 3, ("the pillar and its counter", objects(g, 0x16))
-            g.c.command("poke", addr="0xc00e", hex="04")
-            press(g, "-", 200)   # it rises
-            save(g, args.out / "pillar.state", (2194, 1944), TINKERBAT)
-            scene(g, grid, 0x42)
-            fly_to(g, 4128, 1384)
-            save(g, args.out / "web.state", (4128, 1400))
+            if not args.only or not grid.exists():
+                debug_grid(g, grid)
+                print(f"{grid.name}: the scene grid, debug mode on")
+            for name, make in STATES.items():
+                if not args.only or name in args.only:
+                    make(g, grid, args.out)
         finally:
             g.close()
 

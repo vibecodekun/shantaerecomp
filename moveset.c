@@ -36,7 +36,9 @@
  *   with the run flag set it stands up into a run (06:65B1, script 06:6259).
  *   Here B held crawls at walk speed, with the crawl's animation at twice the
  *   rate, and the run flag stays clear while Down is held. The crouch whip
- *   (06:670D) slides or cancels like the standing one.
+ *   (06:670D) slides or cancels like the standing one. Under a low ceiling
+ *   the crawl routine skips its B test (06:64CF), so B while crawling there
+ *   was lost; here it starts the crouch whip, as it does crouched and still.
  *
  * During a slide she can leave the ground, which neither whip routine checks
  * for (they call 06:475C but not 06:47B9). On the next tick the standing whip
@@ -90,6 +92,8 @@ int shantae_player_move_early(GBContext *ctx);
 #define SCRIPT_WHIP_END_B 0x5E4E   /* the same in the resumed whip */
 #define SCRIPT_CROUCH_WHIP_END_A 0x6678   /* the test of +$65 after the crouch whip's last frame */
 #define SCRIPT_CROUCH_WHIP_END_B 0x6704   /* the same in the resumed crouch whip */
+#define SCRIPT_CROUCH 0x6044       /* down, as the crawl sets it with no direction (06:6531) */
+#define SCRIPT_CROUCH_WHIP 0x6612  /* as the crawl routine starts it (06:6552) */
 #define SCRIPT_CRAWL 0x6259        /* crawl, or run with the run flag */
 #define SCRIPT_CRAWL_LOW 0x6260    /* crawl under a low ceiling */
 #define SCRIPT_RUN 0x6A37
@@ -268,6 +272,16 @@ static int crawl_speed(GBContext *ctx, uint8_t *s, int left, int first, uint32_t
     return 1;
 }
 
+/* A new B in the crawl routine under a low ceiling (CB41, set at 06:64C5 this
+ * tick), where it jumps past its B test (06:64CF to 06:6513) to the
+ * directions: the crouch whip, as the crouch routine starts it there and the
+ * crawl does elsewhere (06:6552), but with cancel and a direction held. */
+static int low_ceiling_whip(GBContext *ctx) {
+    const int moving = (ctx->hram[0x0B] & (PAD_LEFT | PAD_RIGHT)) != 0;
+    return *global(ctx, LOW_CEILING) && (ctx->hram[0x0C] & PAD_B) &&
+           !(shantae_whip_moving() == SHANTAE_WHIP_CANCEL && moving);
+}
+
 /* What a new press starts in the landing routine, in the idle routine's order
  * (06:4AD4): PAD_B the whip, PAD_SELECT the dance, 0 nothing new (A is the
  * routine's own jump; with cancel and a direction held B is not seen). */
@@ -319,12 +333,25 @@ int shantae_moves_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value)
         return 1;
     }
     case 0x6575: case 0x6578: case 0x657B:                /* LD A,$7F/$FF/$FF: crawl left */
-        if (orig != (pc == 0x6575 ? 0x7F : 0xFF) || !crawl_speed(ctx, s, 1, pc == 0x6575, &speed)) return 0;
+        if (orig != (pc == 0x6575 ? 0x7F : 0xFF)) return 0;
+        /* A whip pressed under a low ceiling: no step, as 06:6552 returns
+         * before the crawl's. The whip's routine takes it from here. */
+        if (low_ceiling_whip(ctx)) speed = 0;
+        else if (!crawl_speed(ctx, s, 1, pc == 0x6575, &speed)) return 0;
         *value = (uint8_t)(speed >> (pc - 0x6575) / 3 * 8);
         return 1;
     case 0x6595: case 0x6598: case 0x659B:                /* LD A,$80/0/0: crawl right */
-        if (orig != (pc == 0x6595 ? 0x80 : 0x00) || !crawl_speed(ctx, s, 0, pc == 0x6595, &speed)) return 0;
+        if (orig != (pc == 0x6595 ? 0x80 : 0x00)) return 0;
+        if (low_ceiling_whip(ctx)) speed = 0;
+        else if (!crawl_speed(ctx, s, 0, pc == 0x6595, &speed)) return 0;
         *value = (uint8_t)(speed >> (pc - 0x6595) / 3 * 8);
+        return 1;
+    case 0x6515:                                          /* AND $20 on FF8B: the crawl under a low ceiling */
+        if (orig == 0x20 && low_ceiling_whip(ctx)) set_script(s, SCRIPT_CROUCH_WHIP);
+        return 0;
+    case 0x653F: case 0x6542:                             /* LD A,$44/$60: the crouch's script, no direction */
+        if (orig != (pc == 0x653F ? (uint8_t)SCRIPT_CROUCH : SCRIPT_CROUCH >> 8) || !low_ceiling_whip(ctx)) return 0;
+        *value = (uint8_t)(pc == 0x653F ? SCRIPT_CROUCH_WHIP : SCRIPT_CROUCH_WHIP >> 8);
         return 1;
     case 0x4AD6: case 0x509C: case 0x60EF: case 0x64D3:   /* AND 2 on FF8C: a new B press whips */
         if (orig != 0x02 || shantae_whip_moving() != SHANTAE_WHIP_CANCEL || !moving) return 0;

@@ -238,11 +238,12 @@ void game_draw_overlay(struct GBContext *ctx) {
     ImGui::TextDisabled("view's own pixels, a multiple of them, or as large as in");
     ImGui::TextDisabled("the original picture, the same when a room zooms in.");
     ImGui::TextDisabled("The world stays above them.");
-    static const char *const lifts[] = {"Covers the floor, as in the original", "Raises the world: the floor stays in view"};
-    int lift = shantae_dialogue_lift() != 0;
-    if (ImGui::Combo("Dialogue box", &lift, lifts, 2)) shantae_set_dialogue_lift(lift);
-    ImGui::TextDisabled("Standing at the bottom of a large area, a dialogue");
-    ImGui::TextDisabled("box would cover the floor and Shantae.");
+    static const char *const fits[] = {"Under it, as original", "Fits above it"};
+    int ui_fit = shantae_ui_fit() != 0;
+    if (ImGui::Combo("World", &ui_fit, fits, 2)) shantae_set_ui_fit(ui_fit);
+    ImGui::TextDisabled("Fits keeps the whole room above the bottom UI, sky");
+    ImGui::TextDisabled("to ground, zooming out while a dialogue box is up.");
+    ImGui::TextDisabled("Under it lays the bottom UI over the world's bottom.");
 
     static const char *const zooms[] = {"Off", "Fill the screen", "Whole room"};
     int room_zoom = shantae_room_zoom();

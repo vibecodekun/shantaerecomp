@@ -69,11 +69,12 @@ void shantae_set_room_zoom(int mode);
 #define SHANTAE_UI_MAX_SCALE 16
 int shantae_ui_scale(void);
 void shantae_set_ui_scale(int scale);
-/* While a dialogue box larger than the status bar would cover the room's
- * floor, raise the world until it clears it (1, the default), or cover it as
- * the original does (0). */
-int shantae_dialogue_lift(void);
-void shantae_set_dialogue_lift(int on);
+/* The world and the bottom UI: the world the picture shows in play stays whole
+ * above the bottom UI at its size, zooming out to make room for a larger one
+ * such as a dialogue box (1, the default), or the bottom UI covers the world
+ * beneath it, as the original's does (0). */
+int shantae_ui_fit(void);
+void shantae_set_ui_fit(int on);
 /* Pass a changed size or mode to a running expanded view (no-op when off). */
 void shantae_view_apply_size(void);
 

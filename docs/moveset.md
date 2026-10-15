@@ -2,8 +2,8 @@
 
 "Smoother movement" (`moveset.c`, on by default; Mods page and Esc → Shantae) changes how
 Shantae's base form handles: holding B runs at once, a whip no longer stops her, B whips
-and Select dances the moment she lands, her air speed follows B, and she can crawl at
-walking speed. It is a
+and Select dances the moment she lands, her air speed follows B, she can crawl at
+walking speed, and B whips while crawling under a low ceiling. It is a
 set of hooks in her own
 movement routines in bank 6. Its *Transformations* option (`forms.c`, below) does the same
 for the monkey and the tinkerbat, gives the spider a run and every climb a faster one with B,
@@ -75,6 +75,14 @@ the run flag set and a direction held the crawl routine stands her up into the r
 whip's script tests at its end to go back to the crawl, so it always ends in the crouch
 routine, which starts the crawl again a tick later.
 
+**Under a low ceiling the crawl loses B.** Both crouch routines ask 06:4263 whether there
+is room to stand and keep the answer in `CB41`. The crouch routine (06:6094) then still
+tests a new B (06:60ED), but the crawl routine jumps past its B test, the run, A and the
+release of Down when it is set (`JR NZ` at 06:64CF to the directions at 06:6513). In a
+corridor one tile high, B while crawling did nothing, and only a crouch held still whipped
+(the user's report on 2026-10-15, their state2 in the first labyrinth: "it's only when i
+whip from a standstill and start moving that i can whip freely").
+
 ## What the feature does
 
 All of this applies to her base form (`CB72` = 0). Two other forms have a run of their
@@ -139,6 +147,16 @@ and "Reduce input lag" runs them in the tick of the press as it does from standi
 06:657B left; 06:6595, 06:6598, 06:659B right) give walk speed, and another `$100` comes
 off the script's timer each tick, so the crawl's animation and its sound run at twice the
 rate. The run flag stays clear while Down is held, so she does not stand up.
+
+**B under a low ceiling.** In every whip mode, a new B in the crawl routine with `CB41`
+set starts the crouch whip as 06:6552 does elsewhere: the `AND $20` of the Left test at
+06:6515, where the routine goes under a low ceiling, sets the crouch whip's script
+06:6612. The routine then carries on to the directions, so on that tick the crawl's speed
+operands give no step (06:6552 returns before the crawl's), and with no direction held the
+crouch's script it sets (06:6531, `LD A,$44` and `LD A,$60` at 06:653F and 06:6542) is
+the crouch whip's. Its routine 06:670D takes it from there, sliding or on the spot, and
+"Reduce input lag" runs it in the tick of the press. With *Cancel* and a direction held B
+is not seen, as at 06:64D3.
 
 **One step a frame.** "Reduce input lag" runs a routine her script has just picked in the
 same tick. Where the routine before it has already moved her (a whip that lands, or one
@@ -292,6 +310,8 @@ All are `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_moves_i
 | 06:6575, 6578, 657B | `LD A,$7F/$FF/$FF` | crawl speed, left |
 | 06:6595, 6598, 659B | `LD A,$80/$00/$00` | crawl speed, right |
 | 06:4AD6, 509C, 60EF, 64D3 | `AND $02` | cancel: no whip with a direction held |
+| 06:6515 | `AND $20` | the crawl under a low ceiling: B starts the crouch whip (and no crawl step on that tick at 06:6575-659B) |
+| 06:653F, 6542 | `LD A,$44/$60` | the crouch's script there with no direction: the crouch whip's |
 | 06:6DA4, 6DA7 | `LD A,$CB/$5D` | cancel: the script an air whip lands in |
 | 06:6DC3, 6DC6 | `LD A,$81/$66` | cancel: the same with Down held |
 | 06:56BB, 56BE, 56C1 | `LD A,$C2/$59/$06` | the landing frame: the whip's script for the air whip's B, the dance's for Select |
@@ -350,6 +370,13 @@ feature off and on, a frame at a time, and reads her object:
 - A slide off the platform's edge: whip, air whip (the hit lands in the air), whip, run.
 - The crawl: half a pixel; with B one pixel, crouched throughout; the original stands
   and runs; the crawl option off.
+- A low ceiling (`--corridor-state`, by default `logs/states/corridor.state`: crouched in
+  the first labyrinth's corridor one tile high, as in the user's state2 of 2026-10-15). B
+  and Right while crawling: the original crawls on with no whip; the slide whips from the
+  press (its hit on the crouch whip's frame) at a pixel a frame into the crawl, and without
+  "Reduce input lag" from the frame after; cancel crawls on. B alone on a tick of the crawl
+  routine, with its `+$65` counting down and without: the crouch whip on the spot (the
+  original none).
 - Another form (`--form-state`, by default the tinkerbat of `tinkerbat-gap.state`): with
   Transformations off, 324 frames the same with the feature on and off.
 
@@ -399,5 +426,5 @@ turned into the spider and the tinkerbat), with Transformations off and on:
 - `--original <exe>` (the previous release's): with the feature off, 324 frames of whips,
   runs, jumps and crawls give the same object, byte for byte.
 
-Not covered: a low ceiling (the state's area has none), where the run flag is held clear
-and the crouch whip's cancel takes the crawl script that skips the run test (06:6260).
+Not covered: the crouch whip's cancel under a low ceiling, which takes the crawl script
+that skips the run test (06:6260).
