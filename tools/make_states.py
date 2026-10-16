@@ -38,6 +38,11 @@ one with that inventory.
   crawled through in play; flown to 680,1100 she passes it and drops into the
   labyrinth's own room (16-4096 x 256-3856), and a second flight takes her to
   the corridor.
+- shop.state: the first town (row N's first entry, map 679B inside), in
+  through its fifth door, the shop: Shantae walked against the counter
+  (x 327), B to talk, B through "What can I do for you?", and saved at the
+  menu (its script waiting at 1A:6D84), the cursor on the first item. The
+  debug inventory has 500 gems.
 
 Writes logs/states/ (or --out); never touches user saves or settings. --only
 makes the states named, from the debug-grid.state already there.
@@ -54,6 +59,7 @@ from view_state_repro import step
 from view_probe import ROOT
 
 TINKERBAT = 5
+TOWN_ROW = 27   # the debug grid's row N (check_towns.py): towns from its first entry
 SCRIPT_MATCHED = (0xF9, 0x41, 0x0E)   # 0E:41F9, where the dance script goes on after a match
 TINKERBAT_SCRIPT = (0xFB, 0x43, 0x0E)   # 0E:43FB, its entry in the table at 0E:4342
 
@@ -230,9 +236,46 @@ def corridor(g, grid, out):
     save(g, out / "corridor.state", (2647, 3096))
 
 
+def scripts(g):
+    """(bank, script pc) of each live slot among the first 32."""
+    raw = g.mem(0xD000, 32 * 126, wram_bank=3)
+    return {(raw[i * 126 + 4], word(raw[i * 126:], 2)) for i in range(32) if raw[i * 126] != 0xFF}
+
+
+def shop(g, grid, out):
+    g.c.command("set_input", buttons="-")
+    g.c.command("load_state", path=Path(grid).resolve().as_posix())
+    step(g.c, 5)
+    g.c.command("poke", addr="0xc389", hex=f"{TOWN_ROW:02x}")   # row N, the first town
+    press(g, "A", 2)
+    press(g, "-", 180)
+    g.c.command("poke", addr="0xcc04", hex="00")
+    g.c.command("set_input", buttons="R")
+    for _ in range(700):   # to the shop's door (x 356-386 of the street)
+        step(g.c, 1)
+        street = g.mem(0xCBDC, 2)
+        if 366 <= (street[0] | street[1] << 8) % 640 <= 376:
+            break
+    press(g, "U", 2)
+    press(g, "-", 240)
+    assert g.mem(0xC9F9, 2).hex() == "679b", ("not in the shop", g.mem(0xC9F9, 2).hex())
+    walk_to(g, 327)   # against the counter
+    press(g, "-", 30)
+    press(g, "B", 2)   # talk to the shopkeeper
+    for _ in range(40):   # "What can I do for you?", B by B, to the menu
+        press(g, "-", 20)
+        if (0x1A, 0x6D84) in scripts(g) and not g.mem(0xC3AB, 1)[0]:
+            break
+        press(g, "B", 2)
+    assert (0x1A, 0x6D84) in scripts(g), ("no shop menu", sorted(scripts(g)))
+    press(g, "-", 60)
+    g.c.command("save_state", path=(out / "shop.state").resolve().as_posix())
+    print(f"shop.state: map {g.mem(0xC9F9, 2).hex()}, the menu of town 0's shop, at {where(g)}")
+
+
 STATES = {"moveset.state": pit("moveset.state", 393), "dance.state": pit("dance.state", 400),
           "tinkerbat-gap.state": tinkerbat_gap, "pillar.state": pillar, "web.state": web,
-          "corridor.state": corridor}
+          "corridor.state": corridor, "shop.state": shop}
 
 
 def main():
@@ -246,8 +289,8 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     grid = args.out / "debug-grid.state"
     with tempfile.TemporaryDirectory(prefix="shantae-states-", ignore_cleanup_errors=True) as tmp:
-        # The original moves and dance, so that the routes below are the game's own.
-        g = Game(tmp, "states", args.exe.resolve(), args.port, smooth_moves=0, easy_dance=0)
+        # The original moves, dance and text, so that the routes below are the game's own.
+        g = Game(tmp, "states", args.exe.resolve(), args.port, smooth_moves=0, easy_dance=0, text_speed=0)
         try:
             if not args.only or not grid.exists():
                 debug_grid(g, grid)

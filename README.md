@@ -228,11 +228,20 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
     move after turning back, with nothing to show it, and an enemy nearby hits her at once.
 
   Off plays as the original, frame for frame. The Esc → Shantae controls apply at once.
-- **Instant text** (on by default): press A while dialogue is printing and it runs to
-  the end at once, every box of it, exactly as holding B would a letter at a time, so
-  the box shows the text's last lines and B carries on. An A at a box waiting for B
-  goes on from there the same way. B still speeds text up and turns boxes, and A does
-  nothing else in dialogue. Off plays as the original.
+- **Text speed** (10, instant, by default; 0 is the original): hold B, or press it
+  again and again, while dialogue prints and it prints faster, speed n prints n + 1
+  letters a frame (a box scrolls as much sooner) and 10 the whole text at once, every
+  box of it up to the next wait for a new B. The game's own text loop does it: with B
+  in use its waits are cut short. A new B turns the box as before, and A is left to
+  the game (it backs out of shop menus, which the A of earlier releases' Instant text
+  got in the way of). Shops go as quickly: with B in use the pause after "Yes" is
+  passed over and the price comes off the gems 10 a frame instead of 10 every eighth
+  frame, so buying the same item again and again takes a fifth of a second a time
+  instead of almost two. Scenes that counted on the text taking its time are fixed
+  where they broke: in Risky's hold, and again where she takes the Twinkle, her
+  script could lose a signal sent while she was still laughing if the lines went by
+  fast, and she laughed for good with Shantae frozen. Her signals now count, so both
+  scenes play through at any speed; at 0 everything plays as the original.
 - **Expanded view** (off by default): a larger world view with the original pixel
   scale and the status bar at the bottom, 256×240 (NES size) unless changed. Enable
   it on the Mods page, then launch. Its options set the size: **Adaptive** fills the
@@ -280,9 +289,9 @@ Settings are saved to `shantae.ini` next to the exe. `expanded_view=1`,
 brings the slowdown back and `reduce_input_lag=0` the original input timing;
 `smooth_moves=0` the original moves, with `whip_moving` (0 original, 1 slide, 2 cancel),
 `air_speed_b`, `fast_crawl` and `smooth_forms` its options; `easy_dance=0` the original
-dance, with `quick_steps` and `transform_invincible` its options; `instant_text=0`
-the original text; `ui_scale` the bottom UI's size (0 Auto, 1 the default, up to 16)
-and `ui_fit=0` the bottom UI covering the world (`dialogue_lift=0` from earlier
+dance, with `quick_steps` and `transform_invincible` its options; `text_speed=0`
+the original text, 1-10 faster (`instant_text=0` from earlier releases reads as 0);
+`ui_scale` the bottom UI's size (0 Auto, 1 the default, up to 16) and `ui_fit=0` the bottom UI covering the world (`dialogue_lift=0` from earlier
 releases reads the same). Menus retain their original
 centered layout; the dialogue box sits at the bottom of the wide picture like the
 status bar, at the bottom UI's size, so talking never zooms in and out.

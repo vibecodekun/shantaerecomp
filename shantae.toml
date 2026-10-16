@@ -94,14 +94,27 @@ bank = 0
 addr = 0x1384
 note = "ADD A,$7E, next object slot: run the player's new movement routine now (hook only)"
 
-# "Instant text" (dialogue.c): a new A runs the text loop (01:55F6, 1A:765E)
-# out to its end in the frame of the press, a run of the speaker's script at a
-# time: its timer is set so it runs now, and the pass steps on to the same slot
-# (ADD A,0 at 00:1384 above) until the text waits at its end.
+# "Text speed" (dialogue.c): each object script op as it dispatches, with A the
+# op, DE the script after it and BC the slot. With B in use the waits of the text
+# loops (01:55F6, 1A:765E) are shortened before they add to the slot's timer, so
+# the loop prints on in the same pass, as is a shop's pause after "Yes"; the
+# signals of Risky's two scenes (banks 0C and 11) count.
 [[imm_override]]
 bank = 0
-addr = 0x1323
-note = "SUB $00 on a slot's timer in the script pass: the text's speaker runs now"
+addr = 0x1345
+note = "LD H,$06 before the op table jump: a script op dispatches (hook only)"
+
+[[imm_override]]
+bank = 0
+addr = 0x1A12
+note = "LD H,$06 before the op table jump after a jump op (hook only)"
+
+# A shop's purchase (the callback 1A:70AC) takes 10 gems from CA7D every eighth
+# frame until CB52 is paid, and the shop waits for it; with B in use, every frame.
+[[imm_override]]
+bank = 0x1A
+addr = 0x70CB
+note = "AND $07 on C377: AND 0 while B is in use (dialogue.c), 10 gems every frame"
 
 # The object table grown past 32 slots for the expanded view (object_slots.c):
 # the loops that count slots take the table's size, and the unrolled movement

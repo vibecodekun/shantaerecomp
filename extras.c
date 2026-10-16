@@ -76,6 +76,9 @@
 #define SCRIPTS_PROLOGUE_PC 0x130B    /* LD A,$03 in 00:1305, the object scripts */
 #define SCRIPTS_NEXT_SLOT_PC 0x1384   /* ADD A,$7E: on to the next object slot */
 #define SCRIPTS_RESUME_PC 0x1386      /* the instruction after it */
+#define SCRIPT_OP_PC 0x1345           /* LD H,$06 before the jump through the op table */
+#define SCRIPT_JUMP_OP_PC 0x1A12      /* the same, for the op a jump op goes on to */
+#define SHOP_GEMS_PC 0x70CB           /* AND $07 on C377: a shop takes its gems every 8th frame (bank 1A) */
 #define PLAYER_POINTER 0xCA13
 #define MOVE_MARKER 0x5AA5
 
@@ -101,7 +104,7 @@ static int s_smooth_forms = 1;
 static int s_easy_dance = 1;
 static int s_quick_steps = 1;
 static int s_transform_invincible = 1;
-static int s_instant_text = 1;
+static int s_text_speed = SHANTAE_TEXT_INSTANT;
 
 static int clamp_int(int value, int lo, int hi) {
     return value < lo ? lo : value > hi ? hi : value;
@@ -168,8 +171,10 @@ static void load_settings(void) {
             s_quick_steps = value != 0;
         } else if (sscanf(line, "transform_invincible=%d", &value) == 1) {
             s_transform_invincible = value != 0;
-        } else if (sscanf(line, "instant_text=%d", &value) == 1) {
-            s_instant_text = value != 0;
+        } else if (sscanf(line, "text_speed=%d", &value) == 1) {
+            s_text_speed = clamp_int(value, 0, SHANTAE_TEXT_INSTANT);
+        } else if (sscanf(line, "instant_text=%d", &value) == 1 && !value) {
+            s_text_speed = 0;   /* earlier releases: Instant text off, the original text */
         }
     }
     fclose(f);
@@ -192,7 +197,7 @@ static void save_settings(void) {
             s_whip_moving, s_air_speed_b, s_fast_crawl, s_smooth_forms);
     fprintf(f, "easy_dance=%d\nquick_steps=%d\ntransform_invincible=%d\n", s_easy_dance, s_quick_steps,
             s_transform_invincible);
-    fprintf(f, "instant_text=%d\n", s_instant_text);
+    fprintf(f, "text_speed=%d\n", s_text_speed);
     fclose(f);
 }
 
@@ -233,9 +238,9 @@ void shantae_set_transform_invincible(int on) {
     load_settings(); s_transform_invincible = on != 0; save_settings();
 }
 
-int shantae_instant_text(void) { load_settings(); return s_instant_text; }
-void shantae_set_instant_text(int on) {
-    load_settings(); s_instant_text = on != 0; save_settings();
+int shantae_text_speed(void) { load_settings(); return s_text_speed; }
+void shantae_set_text_speed(int speed) {
+    load_settings(); s_text_speed = clamp_int(speed, 0, SHANTAE_TEXT_INSTANT); save_settings();
 }
 
 int shantae_remove_slowdown(void) { load_settings(); return s_remove_slowdown; }
@@ -253,7 +258,7 @@ void shantae_set_reduce_input_lag(int on) {
  * ends means the logic has overrun, and the handler would skip this VBlank --
  * a lag frame, seen as slowdown. Holding the frame there lets it finish. */
 static int shantae_frame_unfinished(GBContext *ctx) {
-    /* So is a frame "Instant text" runs a text out in (dialogue.c). */
+    /* So is a frame "Text speed" runs a text out in (dialogue.c). */
     return (s_remove_slowdown || shantae_text_running()) && ctx->hram[0x0f] == 0;
 }
 
@@ -595,11 +600,13 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     if ((bank == 0x0D || bank == 0x13 || bank == 0x1C) && shantae_forms_imm(ctx, bank, pc, orig, &value)) return value;
     /* The expanded view: the spider's shot. */
     if (bank == 0x1A && shantae_view_imm(ctx, bank, pc, orig, &value)) return value;
+    /* "Text speed": a shop takes 10 gems every frame while B is in use (AND 0,
+     * so the eighth-frame test passes), not every eighth. */
+    if (bank == 0x1A && pc == SHOP_GEMS_PC && orig == 0x07 && shantae_text_hurry(ctx)) return 0x00;
     /* "Dancing": the dance routine and its script's native calls. */
     if (bank == 0x0E && shantae_dance_imm(ctx, pc, orig, &value)) return value;
-    /* "Instant text": a slot's timer in the script pass, and its step on. */
-    if (bank == 0 && shantae_text_imm(ctx, pc, orig, &value)) return value;
-    if (bank == 0 && pc == SCRIPTS_NEXT_SLOT_PC && orig == 0x7E && shantae_text_again(ctx)) return 0x00;
+    /* "Text speed": each object script op as it dispatches. */
+    if (bank == 0 && (pc == SCRIPT_OP_PC || pc == SCRIPT_JUMP_OP_PC) && orig == 0x06) shantae_script_op(ctx);
     if (bank == 0 && orig == 0x03 && (pc == MOVES_PROLOGUE_PC || pc == SCRIPTS_PROLOGUE_PC)) shantae_moves_tick(ctx);
     /* Match the original byte too: the generator also emits HALT-bug copies of
      * these instructions, which read the opcode as the operand. */

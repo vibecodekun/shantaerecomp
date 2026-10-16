@@ -1185,16 +1185,16 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
     if (!strcmp(cmd, "shantae_hold_info") && s_ctx) {
         /* Also "Reduce input lag": VBlanks that copied the fresh sprite buffer
          * versus kept the original one, and player moves run early (extras.c). */
-        unsigned long long fresh, original, early_moves, replays, texts, text_runs;
+        unsigned long long fresh, original, early_moves, replays, text_waits, text_frames, signals;
         shantae_input_lag_counts(&fresh, &original, &early_moves, &replays);
-        shantae_text_counts(&texts, &text_runs);   /* and "Instant text" */
+        shantae_text_counts(&text_waits, &text_frames, &signals);   /* and "Text speed" */
         gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"holds\":%llu,\"limit_hits\":%llu,"
                                  "\"fresh_sprites\":%llu,\"original_sprites\":%llu,"
-                                 "\"early_moves\":%llu,\"preempt_replays\":%llu,\"texts\":%llu,"
-                                 "\"text_runs\":%llu}", id,
+                                 "\"early_moves\":%llu,\"preempt_replays\":%llu,\"text_waits\":%llu,"
+                                 "\"text_frames\":%llu,\"text_signals\":%llu}", id,
                                  (unsigned long long)s_ctx->frame_hold.holds,
                                  (unsigned long long)s_ctx->frame_hold.limit_hits, fresh, original,
-                                 early_moves, replays, texts, text_runs);
+                                 early_moves, replays, text_waits, text_frames, signals);
         return 1;
     }
     if (!strcmp(cmd, "shantae_flight") && s_ctx && s_ctx->wram) {

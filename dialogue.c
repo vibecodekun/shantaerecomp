@@ -1,15 +1,15 @@
 /*
- * dialogue.c -- "Instant text": A runs a dialogue's text out to its end.
+ * dialogue.c -- "Text speed": B in use prints dialogue faster, up to at once.
  *
  * Text is printed by a script subroutine that the speaker's own script calls
  * (op 34) after the setup at 01:55D1: 01:55F6, or the copy at 1A:765E that
- * some scenes call. Each pass of its loop waits a frame (op 1C), and four more
- * unless B is held (op A6 on FF8B), then takes the next character (op AC,
- * 01:53F4, which breaks lines by itself) and either draws it into the box's
- * map at D800 (op AE, 01:5179) or acts on a code:
+ * shops call for their items (1A:75E0). Each pass of its loop waits a frame (op 1C at
+ * 01:55F6), and four more unless B is held (op A6 on FF8B), then takes the
+ * next character (op AC, 01:53F4, which breaks lines by itself) and either
+ * draws it into the box's map at D800 (op AE, 01:5179) or acts on a code:
  *
- *   $0D  a new line; on the box's second line the box scrolls up twice
- *        (op B0), five frames apart
+ *   $0D  a new line; on the box's third line the box scrolls up twice
+ *        (op B0), five frames apart (op 1C at 01:5757 and 01:575B)
  *   $0E  wait for a new B (op A8 on FF8C), blinking the arrow, then a new line
  *   $0F  wait for a new B, then clear the box
  *   $FE  wait for a new B (the line break 01:53F4 makes in a full box)
@@ -20,156 +20,231 @@
  * With B held the waits for $0E, $0F and $FE are passed over (op A6 again)
  * and a character takes one frame, so holding B runs the text on to $FF a
  * character a frame, where a new B carries on. The 1A copy takes a frame a
- * character either way.
+ * character either way (its waits: 1A:765E, the scroll at 1A:76F1, 1A:76F5).
  *
- * With the option a new A while a slot's script is in either loop runs it on
- * the way B held would, in the same frame: the slot's timer is set so its
- * script runs now (00:1323), B reads as held while it does, and the pass
- * steps on to the same slot again (00:1384) until the script waits at $FF, at
- * another wait for a new B (none is met with B held), or leaves the loop
- * (after $00 its caller goes on as it does in the original, up to its next
- * wait). So the box shows the text's last lines, the arrow blinks at its end,
- * and B carries on. Each run stops at the loop's next wait, so nothing past
- * the text runs sooner than it would. An A at one of the waits for a new B
- * carries on from it as that B would (FF8C reads B for that run alone), unless
- * it is the end ($FF has set C3AB). Nothing in the loop reads A, so A is
- * otherwise what it was.
+ * A wait (op 1C, 00:1362) adds its frames to the slot's timer, and the
+ * script runs on in the same pass while the timer is still under half a
+ * frame (00:136E). With B in use over printing text, these waits in either
+ * loop (only these: the arrow's blinking at the waits for a new B is left as
+ * it is) are shortened before they add, in whole frames, so the loop goes on
+ * at once: speed n gives the speaker n frames of waiting to pass over in
+ * each script pass, n + 1 characters a frame, and what a longer wait (the
+ * scroll's five frames) has left after that goes by n + 1 times as fast;
+ * SHANTAE_TEXT_INSTANT passes over all of them, the text running to its end
+ * (or the next wait for a new B) in the pass. B is in use while held and for B_LINGER frames after, so pressing it
+ * again and again, as through a shop's boxes, goes as fast as holding it
+ * (the four frames a character takes without B held, at 01:5602, are
+ * shortened too); once it is left alone the text prints at the original
+ * pace.
  *
- * The runs cost the guest the time they take, about a frame of CPU for every
- * 40 characters (the remark of debug scene 3C, 284 frames with B held, took
- * some fifteen frames of pictures). While they go on, the frame hold
- * (extras.c) keeps the picture at its last line for up to TEXT_HOLD frames of
- * CPU instead of its own limit, as it does for a busy frame with "Remove
+ * A shop (its script 1A:6D65) also waits 15 frames after "Yes" (1A:6FD7),
+ * shortened the same way, and after "Thanks!" until its callback (1A:70AC)
+ * has taken the price from the gems (CA7D), 10 every eighth frame (C377 AND
+ * 7 at 1A:70CB); with B in use it takes them every frame (extras.c). The
+ * gems still go down 10 at a time, each with its sound, and the shop still
+ * waits for the last. The
+ * frame hold (extras.c) keeps the picture for up to TEXT_HOLD frames of CPU
+ * while a pass runs a long text out, as for a busy frame with "Remove
  * slowdown", so the text is out by the next picture.
  *
- * All of it happens within one script pass and starts again at the next
- * (00:130B), so it needs no state of its own between frames.
+ * Scenes go on around the text, and some count on its taking that long.
+ * In Risky's hold the speaker's script (0C:5288) signals Risky after each of
+ * its three texts, writing 1 to $18 of her slot (op 7C at 0C:52AE, 0C:52C3,
+ * 0C:52DC, on the slot at C01B). Her script (0C:5134) plays an animation
+ * until $18 is set, clears it (op 30 at 0C:5140, 0C:5168, 0C:51B8) and plays
+ * the next; between the second and her laughing loop, which waits for the
+ * third, it clears $18 once more after a one-shot animation (0C:518E). With
+ * the texts quick, the third signal came while the second was still waiting,
+ * or during the one-shot: written over, or cleared, it was lost, and she
+ * laughed for good with Shantae frozen. So with Text speed on the signals
+ * count: each op 7C there adds one, each clear takes one, and the clear at
+ * 0C:518E leaves a signal that is already waiting. The original never has a
+ * signal waiting at those points (it takes each text longer than her
+ * animations), so there it plays as before. The Twinkle scene (11:56C8, her
+ * script 11:5534) is built the same way, its second and third signals a text
+ * apart while she looks for one every ten frames, and gets the same.
+ *
+ * Every text in the game followed by an op 7C on another slot's field is in
+ * one of those or signals once and waits for the receiver's answer (CA9C-
+ * CA9E), sends its signals on fixed waits after a single text (Mimic,
+ * 1C:6F5E), or sets a flag that only plays an animation while it is on (the
+ * opening, [C030]+$18). Ops dispatch at 00:1345 and, after a jump op, at
+ * 00:1A12; each change is made at the slot's next dispatch, once the op has
+ * written, all within one run of its script.
  */
 #include "dialogue.h"
 #include "gbrt.h"
 #include "object_slots.h"
 
-#define PAD_A 0x01
 #define PAD_B 0x02
-#define HELD 0x0B       /* FF8B, from the joypad routine 01:7C31 */
-#define PRESSED 0x0C    /* FF8C: new this frame */
-#define TEXT_END 0xC3AB /* set by $FF */
+#define HELD 0x0B          /* FF8B, from the joypad routine 01:7C31 */
+#define ROM_BANK 0x11      /* FF91: the bank the script runs in */
+#define OP_WAIT 0x1C
+#define OP_SIGNAL 0x7C     /* write a byte to a field of the slot a pointer holds */
+#define OP_SET_18 0x30     /* write a byte to the slot's own $18 */
+#define TIMER_HIGH 0x17    /* frames of the slot's timer (+$16 is the fraction) */
+#define SIGNAL_FIELD 0x18
 
-#define TIMER_CHECK_PC 0x1323   /* SUB $00 on the slot's timer, +$16 */
-#define MAX_RUNS 4096
+/* Frames of waiting one pass may pass over at the instant speed (a remark of
+ * many boxes, debug scene 3C, takes 284 frames with B held). */
+#define INSTANT_FRAMES 4096
 #define TEXT_HOLD (128u * 70224u)
 
-/* The text loops, from their first op to their RET, and their waits for a new
- * B: from where a script waits a frame before one to the end of its blinking
- * (the op a B goes on at). */
-typedef struct { uint16_t from, to; } Span;
+/* B counts as in use this many frames after it was last held, so that
+ * pressing it again and again goes as fast as holding it. */
+#define B_LINGER 12
+
+/* The waits B in use shortens, by the address of their op: in each text
+ * loop a character's frame and the box's scroll, the four frames a character
+ * takes in 01:55F6 without B held, and in a shop the pause after "Yes"
+ * (1A:6FD7, before "Thanks!"). */
+static const struct { uint8_t bank; uint16_t op; } text_waits[] = {
+    {0x01, 0x55F6}, {0x01, 0x5602}, {0x01, 0x5757}, {0x01, 0x575B},
+    {0x1A, 0x765E}, {0x1A, 0x76F1}, {0x1A, 0x76F5},
+    {0x1A, 0x6FD7},
+};
+
+/* Scenes whose speaker signals a slot after each text, by the address of the
+ * ops: the speaker's signals (op 7C), the receiver's clears that take one
+ * (op 30 after each of its waits for a signal) and its clear that keeps. */
 static const struct {
     uint8_t bank;
-    Span loop, waits[3];
-} loops[] = {
-    {0x01, {0x55F6, 0x5820}, {{0x570F, 0x5742}, {0x5775, 0x57A8}, {0x57DD, 0x5810}}},
-    {0x1A, {0x765E, 0x77B3}, {{0x76A9, 0x76DC}, {0x770F, 0x7742}, {0x7777, 0x77AA}}},
+    uint16_t signals[3], takes[3], keep;
+} scenes[] = {
+    /* Risky's hold: the speaker 0C:5288, Risky 0C:5134. */
+    {0x0C, {0x52AE, 0x52C3, 0x52DC}, {0x5140, 0x5168, 0x51B8}, 0x518E},
+    /* The Twinkle: the speaker 11:56C8 ("Hi again! I found the Twinkle...",
+     * "Huh?", Risky's "Hah! That oughtta shut you up!"), Risky 11:5534. */
+    {0x11, {0x56F0, 0x5736, 0x5755}, {0x5599, 0x55B5, 0x55F6}, 0x559F},
 };
 
 static struct {
-    unsigned slot;          /* the slot run out this pass, 0 none yet */
-    int done;               /* it has stopped: nothing more this pass */
-    int press_b;            /* its first run starts at a wait for a new B */
-    int restore;            /* FF8B and FF8C are to be put back after its run */
-    uint8_t held, pressed;
-    int runs;
+    unsigned slot;          /* the speaker given frames this pass, 0 none */
+    int spare;              /* frames of waiting it may still pass over */
+    int fast;               /* a wait was shortened this pass */
     int holding;            /* gb_frame_hold_limit is raised; limit was its value */
     uint32_t limit;
+    int b_age;              /* script passes since B was last held */
+    unsigned after_slot;    /* a slot whose op wrote a field to set at its next dispatch */
+    unsigned after_addr;
+    uint8_t after_value;
 } s;
-static unsigned long long s_texts, s_runs;
+static unsigned long long s_waits, s_frames, s_signals;
 
-static unsigned slot_byte(GBContext *ctx, unsigned addr) {
-    const uint8_t *p = shantae_slot_memory(ctx, addr);
-    return p ? *p : 0xFF;
+/* A byte of the object table, NULL outside it. */
+static uint8_t *slot_field(GBContext *ctx, unsigned addr) {
+    return shantae_slot_memory(ctx, addr);
 }
 
-/* Whether the slot's script is in a text loop short of its end; *waiting:
- * at a wait for a new B. */
-static int in_text(GBContext *ctx, unsigned slot, int *waiting) {
-    if (shantae_slot_index(ctx, slot) < 0 || slot_byte(ctx, slot) == 0xFF) return 0;
-    const unsigned bank = slot_byte(ctx, slot + 4), pc = slot_byte(ctx, slot + 2) | slot_byte(ctx, slot + 3) << 8;
-    for (size_t i = 0; i < sizeof(loops) / sizeof(loops[0]); ++i) {
-        if (bank != loops[i].bank || pc < loops[i].loop.from || pc >= loops[i].loop.to) continue;
-        *waiting = 0;
-        for (int w = 0; w < 3; ++w) *waiting |= pc >= loops[i].waits[w].from && pc < loops[i].waits[w].to;
-        return !*waiting || ctx->wram[TEXT_END - 0xC000] != 1;
-    }
+static int listed(const uint16_t *ops, size_t count, uint16_t op) {
+    for (size_t i = 0; i < count; ++i)
+        if (ops[i] == op) return 1;
     return 0;
 }
 
-static void stop(void) {
-    s.done = 1;
-    if (s.holding) gb_frame_hold_limit = s.limit;
-    s.holding = 0;
-}
-
 void shantae_text_pass(GBContext *ctx) {
-    (void)ctx;
-    if (s.slot) stop();
+    if (ctx->hram[HELD] & PAD_B) s.b_age = 0;
+    else if (s.b_age < B_LINGER + 1) s.b_age++;
+    if (s.holding && !s.fast) {
+        gb_frame_hold_limit = s.limit;
+        s.holding = 0;
+    }
     s.slot = 0;
-    s.done = s.press_b = s.restore = s.runs = 0;
+    s.fast = 0;
+    s.after_slot = 0;
 }
 
 int shantae_text_running(void) {
-    return s.slot && !s.done;
+    return s.fast;
 }
 
-int shantae_text_imm(GBContext *ctx, uint16_t pc, uint8_t orig, uint8_t *value) {
-    if (pc != TIMER_CHECK_PC || orig != 0x00 || s.done) return 0;
-    if (!s.slot) {
-        int waiting;
-        if (!(ctx->hram[PRESSED] & PAD_A) || !shantae_instant_text() || !in_text(ctx, ctx->bc, &waiting)) return 0;
-        s.slot = ctx->bc;
-        s.press_b = waiting;
-        s.limit = gb_frame_hold_limit;
-        if (gb_frame_hold_limit < TEXT_HOLD) gb_frame_hold_limit = TEXT_HOLD;
+int shantae_text_hurry(GBContext *ctx) {
+    return shantae_text_speed() > 0 && ((ctx->hram[HELD] & PAD_B) || s.b_age <= B_LINGER);
+}
+
+/* B in use over a text loop's wait: pass over what this pass has left, and
+ * what is still to wait after that at speed + 1 frames a frame. */
+static void shorten_wait(GBContext *ctx, unsigned slot, uint16_t operand) {
+    const int speed = shantae_text_speed();
+    if (!shantae_text_hurry(ctx)) return;
+    if (s.slot != slot) {
+        s.slot = slot;
+        s.spare = speed >= SHANTAE_TEXT_INSTANT ? INSTANT_FRAMES : speed;
+    }
+    const int frames = gb_read8(ctx, (uint16_t)(operand + 1));
+    const int left = frames - s.spare;
+    const int pass = left <= 0 ? frames : frames - (left + speed) / (speed + 1);
+    uint8_t *timer = slot_field(ctx, slot + TIMER_HIGH);
+    if (pass <= 0 || !timer) return;
+    *timer = (uint8_t)(*timer - pass);
+    s.spare = left <= 0 ? s.spare - frames : 0;
+    s_waits++;
+    s_frames += (unsigned)pass;
+    if (!s.fast && speed >= SHANTAE_TEXT_INSTANT && gb_frame_hold_limit < TEXT_HOLD) {
+        if (!s.holding) s.limit = gb_frame_hold_limit;
         s.holding = 1;
-        s_texts++;
-    } else if (ctx->bc != s.slot) {
-        return 0;
+        gb_frame_hold_limit = TEXT_HOLD;
     }
-    /* A minus A leaves the low byte 0 with no borrow, and the high byte goes
-     * from 1 to 0: the timer counts down to 0, so the script runs now. */
-    uint8_t *high = shantae_slot_memory(ctx, s.slot + 0x17);
-    if (!high) return 0;
-    *high = 0x01;
-    s.held = ctx->hram[HELD];
-    s.pressed = ctx->hram[PRESSED];
-    s.restore = 1;
-    ctx->hram[HELD] |= PAD_B;
-    if (s.press_b) ctx->hram[PRESSED] |= PAD_B;
-    s.press_b = 0;
-    s.runs++;
-    s_runs++;
-    *value = ctx->a;
-    return 1;
+    s.fast = 1;
 }
 
-int shantae_text_again(GBContext *ctx) {
-    if (!s.slot || s.done || ctx->bc != s.slot) return 0;
-    if (s.restore) {
-        ctx->hram[HELD] = s.held;
-        ctx->hram[PRESSED] = s.pressed;
-        s.restore = 0;
+/* A signal scene's op: note the field and what it is to become after it. */
+static void count_signal(GBContext *ctx, unsigned slot, uint8_t bank, uint8_t code, uint16_t operand) {
+    const uint16_t op = (uint16_t)(operand - 1);
+    for (size_t i = 0; i < sizeof(scenes) / sizeof(scenes[0]); ++i) {
+        if (scenes[i].bank != bank) continue;
+        unsigned addr = slot + SIGNAL_FIELD;
+        int add;
+        if (code == OP_SIGNAL && listed(scenes[i].signals, 3, op)) {
+            /* As op 7C finds it (00:1780): the slot at the address, plus the field. */
+            const uint16_t pointer = (uint16_t)(gb_read8(ctx, operand) | gb_read8(ctx, (uint16_t)(operand + 1)) << 8);
+            addr = (unsigned)(gb_read8(ctx, pointer) | gb_read8(ctx, (uint16_t)(pointer + 1)) << 8);
+            addr += gb_read8(ctx, (uint16_t)(operand + 2));
+            add = 1;
+        } else if (code == OP_SET_18 && listed(scenes[i].takes, 3, op)) {
+            add = -1;
+        } else if (code == OP_SET_18 && op == scenes[i].keep) {
+            add = 0;
+        } else {
+            continue;
+        }
+        const uint8_t *field = slot_field(ctx, addr);
+        if (!field) return;
+        int value = *field + add;
+        if (value < 0) value = 0;
+        if (value > 0xFF) value = 0xFF;
+        s.after_slot = slot;
+        s.after_addr = addr;
+        s.after_value = (uint8_t)value;
+        return;
     }
-    int waiting;
-    if (s.runs >= MAX_RUNS || !in_text(ctx, s.slot, &waiting) || waiting) {
-        stop();
-        return 0;
-    }
-    /* The pass counts the slots left in the low byte of the DE it pushed at
-     * 00:1314 and takes one off for this one: one more, and with ADD A,0 the
-     * next slot is this one. */
-    gb_write8(ctx, ctx->sp, (uint8_t)(gb_read8(ctx, ctx->sp) + 1));
-    return 1;
 }
 
-void shantae_text_counts(unsigned long long *texts, unsigned long long *runs) {
-    *texts = s_texts;
-    *runs = s_runs;
+void shantae_script_op(GBContext *ctx) {
+    const unsigned slot = ctx->bc;
+    if (s.after_slot) {
+        if (s.after_slot == slot) {
+            uint8_t *field = slot_field(ctx, s.after_addr);
+            if (field && *field != s.after_value) {
+                *field = s.after_value;
+                s_signals++;
+            }
+        }
+        s.after_slot = 0;
+    }
+    if (shantae_text_speed() <= 0) return;
+    const uint8_t bank = ctx->hram[ROM_BANK], code = ctx->a;
+    const uint16_t operand = ctx->de, op = (uint16_t)(operand - 1);
+    if (code == OP_WAIT) {
+        for (size_t i = 0; i < sizeof(text_waits) / sizeof(text_waits[0]); ++i)
+            if (text_waits[i].bank == bank && text_waits[i].op == op) shorten_wait(ctx, slot, operand);
+    } else if (code == OP_SIGNAL || code == OP_SET_18) {
+        count_signal(ctx, slot, bank, code, operand);
+    }
+}
+
+void shantae_text_counts(unsigned long long *waits, unsigned long long *frames, unsigned long long *signals) {
+    *waits = s_waits;
+    *frames = s_frames;
+    *signals = s_signals;
 }

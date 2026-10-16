@@ -115,11 +115,15 @@ void game_draw_overlay(struct GBContext *ctx) {
     if (!dance) ImGui::EndDisabled();
 
     ImGui::Separator();
-    bool instant = shantae_instant_text() != 0;
-    if (ImGui::Checkbox("Instant text", &instant)) {
-        shantae_set_instant_text(instant ? 1 : 0);
+    int text_speed = shantae_text_speed();
+    const char *text_format = text_speed <= 0 ? "0: Original"
+                            : text_speed >= SHANTAE_TEXT_INSTANT ? "10: Instant" : "%d";
+    if (ImGui::SliderInt("Text speed", &text_speed, 0, SHANTAE_TEXT_INSTANT, text_format,
+                         ImGuiSliderFlags_AlwaysClamp)) {
+        shantae_set_text_speed(text_speed);
     }
-    ImGui::TextDisabled("A runs dialogue to its end at once; B carries on.");
+    ImGui::TextDisabled("B, held or pressed again and again, prints speed + 1");
+    ImGui::TextDisabled("letters a frame, 10 at once; shops take gems at once.");
 
     ImGui::Separator();
     bool expanded = shantae_expanded_view() != 0;

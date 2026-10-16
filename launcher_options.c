@@ -8,7 +8,7 @@
  * the bottom UI, "Remove slowdown", "Reduce input lag",
  * "Smoother movement" with what a whip does on the move, the air speed, the
  * crawl and the transformations, "Easier dancing" with the dance steps and
- * invincibility after transforming, and "Instant text".
+ * invincibility after transforming, and "Text speed" with its speed.
  * Values are stored in shantae.ini through the accessors in extras.c and take
  * effect when the game boots, so there is nothing to stage or commit.
  */
@@ -64,7 +64,8 @@ static const char *const ui_fits[][2] = {
     {"cover", "Under it, as original"},
     {"fit", "Fits above it"},
 };
-#define FEATURE_TEXT "instant_text"
+#define FEATURE_TEXT "text_speed"
+#define OPTION_TEXT_SPEED "speed"
 #define FEATURE_MOVES "smooth_moves"
 #define OPTION_WHIP "whip"
 #define OPTION_AIR "air_speed"
@@ -247,17 +248,25 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
         snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
         snprintf(out->package_version, sizeof(out->package_version), "1.0");
         snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
-        snprintf(out->name, sizeof(out->name), "Instant text");
+        snprintf(out->name, sizeof(out->name), "Text speed");
         snprintf(out->description, sizeof(out->description),
-                 "Press A while dialogue is printing and it runs to the end at once, every page "
-                 "of it, as holding B would a letter at a time; B then carries on. An A at a page "
-                 "waiting for B goes on from there the same way. Nothing else changes: B still "
-                 "speeds text up and turns pages, and A does nothing else in dialogue. Off plays "
-                 "as the original.");
+                 "Hold B, or press it again and again, while dialogue prints and it prints faster: "
+                 "speed 1 two letters a frame, 9 ten, 10 the whole text at once. A new B turns the "
+                 "page as before, and A is left to the game, as in shop menus. Shops keep up: no "
+                 "pause after Yes, and the gems come off 10 a frame. Scenes that counted on the text taking its "
+                 "time still play through (Risky locked up when hurried). Off (0) plays as the "
+                 "original: B held prints a letter a frame.");
         snprintf(out->group, sizeof(out->group), "Gameplay");
-        snprintf(out->status, sizeof(out->status), "%s",
-                 shantae_instant_text() ? "On: A runs the text to its end" : "Off: the original text speed");
-        out->enabled = shantae_instant_text();
+        const int speed = shantae_text_speed();
+        if (speed >= SHANTAE_TEXT_INSTANT)
+            snprintf(out->status, sizeof(out->status), "On: B prints text at once");
+        else if (speed > 0)
+            snprintf(out->status, sizeof(out->status), "On: speed %d, B prints %d letters a frame", speed,
+                     speed + 1);
+        else
+            snprintf(out->status, sizeof(out->status), "Off: the original text speed");
+        out->enabled = speed > 0;
+        out->option_count = 1;
         return 1;
     }
     if (index == 5) {
@@ -871,9 +880,40 @@ static int dance_set_option(const char *option_id, const char *value) {
     return 0;
 }
 
+static int text_option_get(int index, RecompLauncherCModOption *out) {
+    if (index != 0) return 0;
+    memset(out, 0, sizeof(*out));
+    snprintf(out->id, sizeof(out->id), OPTION_TEXT_SPEED);
+    snprintf(out->label, sizeof(out->label), "Speed (0 original, 10 instant)");
+    snprintf(out->description, sizeof(out->description),
+             "How fast B prints, held or pressed again and again: speed n prints n + 1 letters a "
+             "frame (a box scrolls as much sooner), and 10 the whole text at once, up to its next "
+             "wait for a new B. 0 is the original, a letter a frame with B held.");
+    snprintf(out->value, sizeof(out->value), "%d", shantae_text_speed());
+    snprintf(out->default_value, sizeof(out->default_value), "%d", SHANTAE_TEXT_INSTANT);
+    out->type = RECOMP_MOD_OPTION_INTEGER;
+    out->min_value = 0;
+    out->max_value = SHANTAE_TEXT_INSTANT;
+    out->step = 1;
+    return 1;
+}
+
+static int text_set_option(const char *option_id, const char *value) {
+    char *end;
+    const long speed = strtol(value, &end, 10);
+    if (!strcmp(option_id, OPTION_TEXT_SPEED) && end != value && !*end && speed >= 0 &&
+        speed <= SHANTAE_TEXT_INSTANT) {
+        shantae_set_text_speed((int)speed);
+        return 1;
+    }
+    snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
+    return 0;
+}
+
 static int feature_option_get(void *ctx, const char *package_id, const char *feature_id,
                               int index, RecompLauncherCModOption *out) {
     (void)ctx;
+    if (is_text(package_id, feature_id) && out) return text_option_get(index, out);
     if (is_view(package_id, feature_id) && out) return view_option_get(index, out);
     if (is_moves(package_id, feature_id) && out) return moves_option_get(index, out);
     if (is_dance(package_id, feature_id) && out) return dance_option_get(index, out);
@@ -971,7 +1011,9 @@ static int feature_enable(void *ctx, const char *package_id, const char *feature
         return 1;
     }
     if (is_text(package_id, feature_id)) {
-        shantae_set_instant_text(enabled);
+        /* On from 0 is the default speed; the speed is kept otherwise. */
+        if (!enabled) shantae_set_text_speed(0);
+        else if (!shantae_text_speed()) shantae_set_text_speed(SHANTAE_TEXT_INSTANT);
         return 1;
     }
     if (!is_feature(package_id, feature_id)) return 0;
@@ -985,6 +1027,7 @@ static int feature_set_option(void *ctx, const char *package_id, const char *fea
     if (is_view(package_id, feature_id) && option_id && value) return view_set_option(option_id, value);
     if (is_moves(package_id, feature_id) && option_id && value) return moves_set_option(option_id, value);
     if (is_dance(package_id, feature_id) && option_id && value) return dance_set_option(option_id, value);
+    if (is_text(package_id, feature_id) && option_id && value) return text_set_option(option_id, value);
     if (!is_feature(package_id, feature_id) || !option_id || !value ||
         strcmp(option_id, OPTION_COLORS) != 0) {
         return 0;
