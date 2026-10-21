@@ -79,6 +79,9 @@
 #define SCRIPT_OP_PC 0x1345           /* LD H,$06 before the jump through the op table */
 #define SCRIPT_JUMP_OP_PC 0x1A12      /* the same, for the op a jump op goes on to */
 #define SHOP_GEMS_PC 0x70CB           /* AND $07 on C377: a shop takes its gems every 8th frame (bank 1A) */
+#define ROUND_OVER_BANK 0x12          /* the dance floor's round controller, script 12:5713: */
+#define ROUND_OVER_OP 0x5713          /* op 32, a call to 12:5725 once the round is over */
+#define OP_CALL 0x32
 #define PLAYER_POINTER 0xCA13
 #define MOVE_MARKER 0x5AA5
 
@@ -588,6 +591,20 @@ static void step_hook(GBContext *ctx) {
     run_player_move(ctx);
 }
 
+/* The dance floor (the Dance Parlor at night). Once a round is over, its
+ * controller calls 12:5725, and some 180 frames later the round's end makes an
+ * object (script 12:63C4) in slot 14 without placing it: it starts where the
+ * slot's last object was left (D718-D71C). In a game started on cleared WRAM,
+ * as here and on emulators, that is 0,0, and the game stays on "NOT ENOUGH
+ * GEMS!" or the winnings for good. Griever's dance floor hang fix (a ROM patch,
+ * docs/rom-patches.md) sets D719-D71C to 8, 8, 8, 2 at the start of 12:5725;
+ * the same is done here as the controller's op dispatches, through the game's
+ * own memory map, so it is the same with or without that patch. */
+static void dance_floor_round_over(GBContext *ctx) {
+    static const uint8_t place[4] = {8, 8, 8, 2};
+    for (unsigned i = 0; i < 4; ++i) gb_write8(ctx, (uint16_t)(0xD719 + i), place[i]);
+}
+
 static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig) {
     /* $FFFE is only ever 0, 1 or 3, so $FF makes the GBA test fail. */
     if (bank == 0 && pc == PALETTE_GBA_CHECK_PC && s_original_colors) {
@@ -606,7 +623,12 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     /* "Dancing": the dance routine and its script's native calls. */
     if (bank == 0x0E && shantae_dance_imm(ctx, pc, orig, &value)) return value;
     /* "Text speed": each object script op as it dispatches. */
-    if (bank == 0 && (pc == SCRIPT_OP_PC || pc == SCRIPT_JUMP_OP_PC) && orig == 0x06) shantae_script_op(ctx);
+    if (bank == 0 && (pc == SCRIPT_OP_PC || pc == SCRIPT_JUMP_OP_PC) && orig == 0x06) {
+        shantae_script_op(ctx);
+        /* A the op, DE the script after it, FF91 the script's bank. */
+        if (ctx->a == OP_CALL && ctx->de == ROUND_OVER_OP + 1 && ctx->hram[0x11] == ROUND_OVER_BANK)
+            dance_floor_round_over(ctx);
+    }
     if (bank == 0 && orig == 0x03 && (pc == MOVES_PROLOGUE_PC || pc == SCRIPTS_PROLOGUE_PC)) shantae_moves_tick(ctx);
     /* Match the original byte too: the generator also emits HALT-bug copies of
      * these instructions, which read the opcode as the operand. */

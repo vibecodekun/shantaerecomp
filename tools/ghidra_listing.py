@@ -11,10 +11,14 @@ A range is BANK:START:END in hex. Bank 0 is 0000-3FFF; the others are mapped
 at 4000-7FFF. Object scripts are bytecode, not code (00:1342 runs them); a
 range over one prints nonsense.
 
-Usage: python tools/ghidra_listing.py [--ghidra DIR] RANGE [RANGE ...]
+--patch PATCH lists the ROM with an IPS or BPS patch applied instead (the
+patched image is written to logs/ghidra and imported beside the stock ROM).
+
+Usage: python tools/ghidra_listing.py [--ghidra DIR] [--patch PATCH] RANGE [RANGE ...]
 --ghidra defaults to $GHIDRA_INSTALL_DIR.
 """
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -35,6 +39,7 @@ def headless(ghidra, *args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ghidra", type=Path, default=os.environ.get("GHIDRA_INSTALL_DIR"))
+    ap.add_argument("--patch", type=Path, help="an IPS or BPS patch to apply to the ROM first")
     ap.add_argument("ranges", nargs="+", metavar="BANK:START:END")
     args = ap.parse_args()
     if args.ghidra is None:
@@ -43,12 +48,21 @@ def main():
         if not re.fullmatch(r"[0-9A-Fa-f]{1,2}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}", r):
             ap.error(f"not BANK:START:END in hex: {r}")
     PROJECT.mkdir(parents=True, exist_ok=True)
-    if not (PROJECT / "shantae.rep").exists():
-        log = headless(args.ghidra, "-import", str(ROM), "-noanalysis")
+    rom = ROM
+    if args.patch:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from check_patches import apply_patch
+        patched = apply_patch(ROM.read_bytes(), args.patch.read_bytes())
+        digest = hashlib.sha256(patched).hexdigest()[:12]
+        rom = PROJECT / f"shantae-{digest}.gbc"
+        if not rom.exists():
+            rom.write_bytes(patched)
+    if not (PROJECT / "shantae.rep").exists() or args.patch:
+        log = headless(args.ghidra, "-import", str(rom), "-noanalysis")
         (PROJECT / "import.log").write_text(log)
-        if "Import succeeded" not in log:
+        if "Import succeeded" not in log and "already exists" not in log:
             sys.exit(f"the import failed; see {PROJECT / 'import.log'}")
-    log = headless(args.ghidra, "-process", ROM.name, "-readOnly", "-noanalysis", "-scriptPath",
+    log = headless(args.ghidra, "-process", rom.name, "-readOnly", "-noanalysis", "-scriptPath",
                    str(Path(__file__).resolve().parent / "ghidra"), "-postScript", "Listing.java", *args.ranges)
     (PROJECT / "last.log").write_text(log)
     lines = re.findall(r"Listing\.java> (.*?) *\(GhidraScript\)", log)

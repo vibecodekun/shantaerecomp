@@ -18,7 +18,9 @@ SHA-256 `1b92e22d5510c51bab97d23074e4aad7464d93eb15f7596ef7da0a5efa27a19d` (CRC3
 The launcher reads "ROM verified" under the box art and enables PLAY only for that file. Any other
 file reads "ROM not recognized" and does not start: bad dumps, other games, and Shantae's other
 releases (World, Switch, Limited Run Games), which are different ROMs and not supported yet. The
-code was recompiled from that exact ROM.
+code was recompiled from that exact ROM. Translations and other patches for it are applied by the
+launcher ([ROM patches](#rom-patches-ipsbps)); a ROM file that already has one of the patches the
+build was made with applied is verified too.
 
 ## Layout
 
@@ -41,6 +43,7 @@ code was recompiled from that exact ROM.
 | `game_build.cmake` | Adds game hooks, UI, and regression targets to the generated project |
 | `generated/` | Recompiler output (not committed) — never edit; regenerate |
 | `roms/shantae.gbc` | Stock ROM (CRC32 E994B59B): you supply it; never committed |
+| `patches/` | ROM patches made for Shantae that the build compiles (translations, fixes): you supply them too; `patches/README.md` lists them, `patches/patches.toml` names them for players |
 | `tools/build.sh` | Rebuild everything (below) |
 | `tools/gen_annotations.py`, `tools/inline_args.py` | Derive `shantae.annotations` and the `[[inline_call]]` entries from the ROM |
 | `tools/audit_whole_rom.py`, `tools/whole_rom_check.c` | Exhaustive bank/address audit and native-instruction differential checks |
@@ -60,9 +63,11 @@ code was recompiled from that exact ROM.
 | `tools/check_forms.py` | The transformations with "Smoother movement" beside the original: the monkey's and tinkerbat's slide (from standing and walking), cancel and air speed, the harpy's talons in her run and while flapping, the tinkerbat's box in the ice tower's hidden passage and the pipe maze, the pillar, the charges, the elephant's turn, landing and stomp, climbing with B, the spider's run and shot, webs, and the spider's shot in the expanded view; Transformations off against the previous release, from four saved states |
 | `tools/check_dance.py` | "Easier dancing": every dance of the ROM's table on its last step, skipped and restarted steps, the original rhythm, a slider against the new monkey (the blink once its silhouette ends) and against Shantae turned back, with and without the blink, and every transformation's blink; the feature off against the previous release, from a saved state |
 | `tools/check_rom_gate.py` | Only the ROM the build was recompiled from starts: the launcher's "ROM verified" line and PLAY, and the runtime's own check, for the ROM, bad dumps made from it, and optionally another game |
+| `tools/check_patches.py` | Every patch in `patches/` on the stock ROM: every instruction position it changes against the reference interpreter (`whole_rom_check patches`), recognized with all of them compiled, the native code against the interpreter on the patched ROM from a cold boot and from the first town's shop, the debug-grid route, scene 3C's text and the shop pictured; with the dance floor fix, the dance floor at night as a player gets there and a round's end against the interpreter; the patched ROM file accepted; a code patch the build was not made with stops with its message, a data patch runs, a size-changing one is refused; the launcher's line for each ([docs/rom-patches.md](docs/rom-patches.md#checks)) |
+| `tools/check_dance_floor.py` | The dance floor on the stock game: from a cold boot, the Zombie Caravan's gates, the warp dance, Scuttle Town at night, the Dance Parlor, a round to its end; it must return to the owner, and the round's end must match the interpreter ([The dance floor](#the-dance-floor)) |
 | `tools/check_leave.py` | Leaving from the in-game menus: the first confirmed Return to Launcher ends the game and opens the launcher, Quit ends it and opens nothing, from the Escape menu, the settings window and the debug server |
 | `tools/build_ghidraboy.py`, `tools/ghidraboy-ghidra12.patch` | Rebuild/install the GhidraBoy extension, ported to Ghidra 12 by the patch (instructions in the script) |
-| `tools/ghidra_listing.py`, `tools/ghidra/Listing.java` | Ghidra's disassembly of ROM ranges (`6:4AA7:4B19`) from the command line: headless, read-only, far-call aware; imports the ROM into `logs/ghidra` on first use |
+| `tools/ghidra_listing.py`, `tools/ghidra/Listing.java` | Ghidra's disassembly of ROM ranges (`6:4AA7:4B19`) from the command line: headless, read-only, far-call aware; imports the ROM into `logs/ghidra` on first use, and with `--patch` the ROM with an IPS/BPS patch applied |
 | `tools/build_librashader.sh` | Build `librashader.dll` (OpenGL runtime; x64, or x86/arm64 when named) and stage the slang-shaders presets |
 | `third_party/librashader/` | Its output: the x64 DLL, `windows-<arch>/librashader.dll`, `shaders/`, and `patches/` applied to the librashader source; `linux-<arch>/librashader.so` from `tools/build_linux.sh` |
 | `tools/build_windows.sh`, `tools/windows/` | Windows releases for x64, x86 and ARM64 (below): pinned msys2 libraries, CMake toolchain, DLL staging, packaging, checks |
@@ -362,6 +367,49 @@ draws into the tiles, and the view draws every picture and door from its own pie
 Camera/physics reads and the native PPU remain unchanged.
 See [expanded-view implementation and checks](docs/expanded-view.md).
 
+## ROM patches (IPS/BPS)
+
+Translations, fixes and hacks made as IPS or BPS patches for Shantae (USA) can be played. On the
+launcher's **Mods** page, **ROM PATCH** → **Browse...** picks the patch file; the line under it says
+at once what it does here, and PLAY starts the game with it. The patch is applied to the ROM in
+memory every time the game starts, so the ROM file itself is left as it is, and "Skip launcher on
+boot" keeps it; **Clear** or the checkbox turns it off. Picking a ROM file that already has one of
+the patches below applied works too. In-game saves are shared with and without a patch; save
+states only load with the patch they were made with.
+
+Every instruction of this build was compiled from the stock ROM, so a patch that changes code
+needs that code compiled as well. The build does it for the patches in `patches/` (bring your
+own, like the ROM: [patches/README.md](patches/README.md) lists the files): each instruction they
+change is compiled from its patched bytes, and at boot the game runs those instead, with no
+interpreter. These are compiled into the releases:
+
+- French translation by Anthiflo (v1.2), with the dance floor fix
+- Italian translation
+- Polish translation by PieniondzPS (v2)
+- Brazilian Portuguese translation by Sliter and ajkmetiuk (v1), with the dance floor fix, and
+  the same with GBA Enhanced mode and GBC palettes too
+- Dance floor hang fix by Griever; GBA Enhanced mode on any Game Boy Color (Polar-Star); GBC
+  palettes by Drenn (v1.1). All three are in this build already: the dance floor fix without a
+  patch ([below](#the-dance-floor)), the other two as options (GBA Enhanced mode, Colors).
+
+Any other patch works if it changes only the game's data (text, graphics, levels): the launcher
+says so in green. If it changes code this build wasn't made with, the launcher says where, in
+amber, and the game stops with a message if it ever reaches that code. Patches that change the
+ROM's size are refused. How it works, what each patch above changes, and the checks:
+[docs/rom-patches.md](docs/rom-patches.md).
+
+### The dance floor
+
+The Dance Parlor's floor (Scuttle Town at night) no longer hangs at the end of a round. Once a
+round is over, the round's end makes an object (script 12:63C4) in object slot 14 without placing
+it, so it starts where the slot's last object was left (D718-D71C). On a game started on cleared
+WRAM, as here and on emulators, that is 0,0, and the game stayed on "NOT ENOUGH GEMS!" (or the
+winnings) for good. Griever's dance floor hang fix sets D719-D71C to 8, 8, 8, 2 in 12:5725, which
+the round's controller (script 12:5713) calls as the round ends; `extras.c` does the same as that
+op dispatches, so the round ends and Shantae is back with the owner, with or without that patch. `python tools/check_dance_floor.py` plays there the way a player does, from
+the Zombie Caravan's gates and the warp dance at night, and checks the round's end against the
+interpreter.
+
 ## Shader presets (librashader)
 
 RetroArch `.slangp` presets (CRT, LCD, handheld, scalers, Mega Bezel...) run through
@@ -586,6 +634,7 @@ cmake -G Ninja -S generated -B generated/build
 ninja -C generated/build whole_rom_check ram_native_check native_dispatch_check
 generated/build/whole_rom_check.exe roms/shantae.gbc variants
 generated/build/whole_rom_check.exe roms/shantae.gbc production
+generated/build/whole_rom_check.exe roms/shantae.gbc patches patches/*/*.ips
 generated/build/ram_native_check.exe roms/shantae.gbc
 generated/build/native_dispatch_check.exe roms/shantae.gbc logs/native-targets.txt
 ```
@@ -595,8 +644,16 @@ all used native instruction bodies against the reference interpreter, with memor
 comparison, both flag outcomes, and every cross-window CB opcode. `production`
 uses the real game dispatcher; `variants` exercises the exhaustive entries
 directly. Optional `all` compares every legal normal/HALT-bug address individually
-and takes substantially longer. Tests use private contexts and do not load or save
+and takes substantially longer. `patches` takes the ROM patches the build was compiled
+with ([ROM patches](#rom-patches-ipsbps)) and runs every instruction position each one
+changes, through the game's dispatcher on the patched ROM, from both flag states:
+1,060,826 comparisons for the eight. Tests use private contexts and do not load or save
 battery data. The interpreter remains available as an explicit testing reference.
+
+An analyzed entry the analysis emitted no instruction at (20 of them, all in banks' unused
+space, such as 0B:79FF) runs the instruction at its PC through the exhaustive path, one step.
+It used to return without running anything, which only `patches` could see: two translations
+put bytes there.
 
 The identified RAM programs have explicit native translations: 116 patched JP
 vectors (including both WRAM object pools) and six DMA instruction entries.

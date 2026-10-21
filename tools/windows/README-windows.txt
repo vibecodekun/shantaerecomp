@@ -18,6 +18,13 @@ first start. It must be the No-Intro dump, SHA-256
 1b92e22d5510c51bab97d23074e4aad7464d93eb15f7596ef7da0a5efa27a19d: the
 launcher reads "ROM verified" for it and starts no other file.
 
+Translations and other IPS or BPS patches for that ROM: on the launcher's
+Mods page, ROM PATCH, Browse... picks the patch, and the line under it says
+what it does here. This version is built for the French, Italian, Polish
+and Brazilian Portuguese translations and the dance floor fix (bring the
+patch file; none is included); any other patch that changes only text and
+graphics works too. The ROM file is left as it is.
+
 
 Running
 -------

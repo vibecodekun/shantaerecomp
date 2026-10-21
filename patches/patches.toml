@@ -1,0 +1,41 @@
+# The ROM patches this build is compiled with (shantae.toml, rom_patches): every
+# instruction one of them changes is compiled from its patched bytes too, so the
+# code changes run natively like the rest of the game. A player picks the patch
+# on the launcher's Mods page and the launcher names it by its title here.
+# tools/check_patches.py tests every patch in this folder.
+#
+# Credits are the patches' own readmes'; the three small fixes are credited
+# in the Brazilian Portuguese translation's readme, which includes them.
+
+[[patch]]
+file = "ShantaeFR/ShantaeFR.ips"
+title = "French translation by Anthiflo (v1.2), with the dance floor fix"
+source = "https://www.romhacking.net/translations/5578/"
+
+[[patch]]
+file = "ShantaeGBCITA/ShantaeGBCITA.ips"
+title = "Italian translation"
+
+[[patch]]
+file = "ShantaePL-v2/ShantaePL-v2.ips"
+title = "Polish translation by PieniondzPS (v2)"
+
+[[patch]]
+file = "2024_Shantae_PT-BR_v1_sliter_ajkmetiuk/Shantae_PT-BR_v1+dance_fix.ips"
+title = "Brazilian Portuguese translation by Sliter and ajkmetiuk (v1), with the dance floor fix"
+
+[[patch]]
+file = "2024_Shantae_PT-BR_v1_sliter_ajkmetiuk/Shantae_PT-BR_v1+dance+gba+color_fix.ips"
+title = "Brazilian Portuguese translation by Sliter and ajkmetiuk (v1), with the dance floor fix, GBA Enhanced mode and GBC palettes"
+
+[[patch]]
+file = "Shantae (U) [C][!] dance bugfix/Shantae (U) [C][!] dance bugfix.ips"
+title = "Dance floor hang fix by Griever"
+
+[[patch]]
+file = "Shantae GBA Color Patch/Shantae GBA Color Patch.ips"
+title = "GBA Enhanced mode on any Game Boy Color (Polar-Star)"
+
+[[patch]]
+file = "Shantae GBC palettes/Shantae GBC palettes v1.1.ips"
+title = "GBC palettes by Drenn (v1.1)"

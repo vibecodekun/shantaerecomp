@@ -73,8 +73,9 @@ checks use private contexts and do not read or write battery saves.
 | Check | Result |
 |---|---|
 | Whole-ROM map/signature audit | All 256 banks / 8,421,376 slots, zero missing entries |
-| `whole_rom_check variants` | 110,912 instruction comparisons, zero generated interpreter entries |
-| `whole_rom_check production` | 110,912 instruction comparisons through production dispatch |
+| `whole_rom_check variants` | 111,448 instruction comparisons, zero generated interpreter entries |
+| `whole_rom_check production` | 111,448 instruction comparisons through production dispatch |
+| `whole_rom_check patches` | 1,060,826 instruction comparisons: every position the eight ROM patches change, through production dispatch on each patched ROM |
 | `ram_native_check` | 291,191 instruction comparisons, zero generated interpreter entries |
 | Native-target regression | 3,966 entries, two script calls, two far returns; zero failures |
 | Annotation regressions | 12 tests passed |
@@ -84,6 +85,17 @@ of every emitted body, both flag states, boundary cases, PPU access transitions,
 and all cross-window CB opcodes. They do not execute every ROM slot in every
 machine state. The optional `all` mode checks every legal slot individually;
 that longer mode has not been run.
+
+`patches ROM PATCH...` applies each ROM patch the build was compiled with
+([ROM patches](rom-patches.md)) and runs every instruction position it changes,
+each one, from both flag states, through the game's dispatcher: an analyzed
+routine with a changed instruction steps through the per-position bodies. Each
+position, not a representative per body, so it also tries the dispatcher at
+addresses the stock modes never reach. It found 20 analyzed entries whose block
+was empty (no instruction emitted, all in the banks' unused space, such as
+0B:79FF): their routine returned without running anything or moving the PC. Two
+translations put bytes at 0B:79FF and 0E:74CD. In an `exhaustive_rom` build the
+generator now emits such a routine as one step through the exhaustive path.
 
 The RAM test executes the actual ROM initializers, verifies the resulting
 programs, then compares all 65,536 patched JP destinations (normal and HALT-bug

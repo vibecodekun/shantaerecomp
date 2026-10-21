@@ -13,6 +13,11 @@ annotations = "shantae.annotations"
 [options]
 # Native entry at every byte in every ROM bank, plus bank-zero alias and HALT bug.
 exhaustive_rom = true
+# Players' ROM patches (IPS/BPS) made for Shantae: every instruction a patch in
+# this folder changes is compiled from its patched bytes too, so translations
+# and fixes that change code run natively (gb_rom_patch.h). Any other patch
+# runs if it changes only data.
+rom_patches = "patches"
 # Fast-path function discovery in historically identified code banks. Exhaustive
 # native entries cover ALL banks regardless of this list. Routines reached only
 # through computed jumps (script opcodes, JP-stub tables, object handlers) are

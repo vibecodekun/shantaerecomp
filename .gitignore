@@ -5,6 +5,12 @@ bios/
 *.gbc
 *.sav
 *.ips
+*.ips32
+*.bps
+# ROM patches the build compiles (patches/README.md): bring your own too.
+patches/*
+!patches/README.md
+!patches/patches.toml
 
 # Recompiler output (a translation of the ROM), build trees and releases.
 generated/
