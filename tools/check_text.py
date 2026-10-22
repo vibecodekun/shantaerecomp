@@ -33,6 +33,17 @@ the pause after "Yes", and the gems taken 10 every eighth frame); at 10 at
 most 16, the gems still going down 10 at a time, and buying stopping when
 the gems (500) no longer cover a cream.
 
+A freed genie (logs/states/genie.state, beside the caged genie of the first
+labyrinth, the user's state4 of 2026-10-21): B to free her, then B every other
+frame, the user's way (as the "Thank you for freeing me!" box opens), for
+1600 frames, at speed 0 and 10. Her handoff byte CBEB must go 1 (the speaker,
+after its text), 2 (her dance done), 3 and 4 (the Dance Menu's end) in that
+order, the Dance Menu (Shantae's slot in bank 05) only after the 3, and at the
+end the picture's palettes must not be white and nothing may still wait on
+CBEB. v0.1.20 at speed 10 fails it: her clear of CBEB (0C:6D56) came three
+frames after the speaker's 1, the menu opened without her dance, and she
+danced afterwards and left the screen white.
+
 Isolated settings and saves; the states are not modified.
 
     python tools/check_text.py
@@ -54,6 +65,10 @@ MODES = {"held": 0, "fast": 3, "instant": 10, "plain": 10}
 SHOP_MODES = {"shop-original": 0, "shop-fast": 10}
 GEMS = 0xCA7D
 CREAM = 30
+GENIE_MODES = {"genie-original": 0, "genie-instant": 10}
+HANDOFF = 0xCBEB    # the genie scene's: 1 dance, 2 danced, 3 the menu, 4 its end
+HANDOFF_WAITS = {0x6D72, 0x7187, 0x71ED, 0x7200, 0x720E}   # 0C: its scripts' waits on it
+WHITE = "FF7F" * 32
 
 
 def speaker(g):
@@ -182,6 +197,34 @@ def shop(args, mode, port, result):
             g.close()
 
 
+def genie(args, mode, port, result):
+    """Beside the caged genie: B, then B every other frame. CBEB's values as they
+    change, the frame the Dance Menu opens, and how the scene is left."""
+    with tempfile.TemporaryDirectory(prefix="shantae-genie-", ignore_cleanup_errors=True) as tmp:
+        g = Game(tmp, mode, args.exe.resolve(), port, text_speed=GENIE_MODES[mode])
+        try:
+            g.load(ROOT / "logs/states/genie.state")
+            values, menu = [], None
+            for f in range(1600):
+                g.c.command("set_input", buttons="B" if f % 2 == 0 else "-")
+                step(g.c, 1)
+                value = g.mem(HANDOFF, 1)[0]
+                if not values or values[-1][0] != value:
+                    values.append((value, f))
+                if menu is None and g.slot()[4] == 0x05:
+                    menu = f
+            waiting = []
+            for live in g.c.command("shantae_slots")["live"]:
+                i = live[0]
+                s = (g.mem(0xD000 + i * 126, 6, wram_bank=3) if i < 93 else g.mem(0xA000 + (i - 93) * 126, 6))
+                if s[4] == 0x0C and word(s, 2) in HANDOFF_WAITS:
+                    waiting.append(word(s, 2))
+            result[mode] = dict(values=values, menu=menu, waiting=waiting,
+                                white=g.c.command("hw_state")["bg_palette"].upper() == WHITE)
+        finally:
+            g.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--exe", type=Path, default=ROOT / "generated/build/shantae.exe")
@@ -193,11 +236,13 @@ def main():
                for i, mode in enumerate(MODES)]
     threads += [threading.Thread(target=shop, args=(args, mode, args.port + len(MODES) + i, result))
                 for i, mode in enumerate(SHOP_MODES)]
+    threads += [threading.Thread(target=genie, args=(args, mode, args.port + len(MODES) + len(SHOP_MODES) + i, result))
+                for i, mode in enumerate(GENIE_MODES)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    missing = [m for m in list(MODES) + list(SHOP_MODES) if m not in result]
+    missing = [m for m in list(MODES) + list(SHOP_MODES) + list(GENIE_MODES) if m not in result]
     if missing:
         sys.exit(f"FAILED: {', '.join(missing)} did not finish (see above)")
     held, failures = result["held"], []
@@ -244,6 +289,16 @@ def main():
         else:
             print(f"{mode} (speed {SHOP_MODES[mode]}): {len(bought)} creams in 300 frames, {gaps[0]} frames "
                   f"apart, the gems {start} -> {left}, 10 at a time")
+    for mode in GENIE_MODES:
+        r = result[mode]
+        order = [v for v, _ in r["values"] if v]
+        at = {v: f for v, f in reversed(r["values"])}   # the first frame of each value
+        if order != [1, 2, 3, 4] or r["menu"] is None or r["menu"] < at[3] or r["white"] or r["waiting"]:
+            failures.append(f"{mode}: CBEB {r['values']}, the Dance Menu at {r['menu']}, white {r['white']}, "
+                            f"still waiting at 0C:{[f'{w:04X}' for w in r['waiting']]}")
+        else:
+            print(f"{mode} (speed {GENIE_MODES[mode]}): CBEB 1 at frame {at[1]}, her dance to {at[2]}, the "
+                  f"Dance Menu at {r['menu']}, 4 at {at[4]}; nothing waits on CBEB and the picture is not white")
     if failures:
         sys.exit("FAILED:\n  " + "\n  ".join(failures))
     print("PASS")

@@ -64,6 +64,16 @@ Transformations on and off and reads her object.
   the web is a jump, A in the air takes hold, and A on the web jumps off it,
   with A again taking hold; the tinkerbat climbs two pixels a frame with B
   held. The original takes hold as the jump starts and ignores A on the web.
+- The user's report on 2026-10-21: the elephant turning left, from standing
+  and from a walk right, moves a pixel on every frame from the press through
+  the turn into the walk (the original stands for the turn's ten frames, and
+  from a walk one more); the harpy's talon two frames into her run gains 8 a
+  frame as the run does, a step a frame (the original holds the speed she
+  had); the harpy's A on every frame from 2 to 49 after a standing flap,
+  through her landing, flaps (the original loses the landing frames); and on
+  the web wall the spider and the tinkerbat climb to its top, which opens onto
+  the air, and to its other edges and stay on, A jumping off (the original
+  jumps off at the top).
 - The spider's shot in the expanded view (426x240): it flies while it is in
   the picture, to the room's left edge; in the original view it lives its 30
   frames, as without the view.
@@ -87,6 +97,7 @@ HARPY_RUN, HARPY_TALON, HARPY_FLAP = 0x6F38, 0x751F, 0x72A6
 AIR_CLAW, MONKEY_CLIMB = 0x4ED7, 0x4ABE
 ELEPHANT_CHARGE, ELEPHANT_JUMP, TINK_CHARGE = 0x650E, 0x610B, 0x64CA
 ELEPHANT_TURN, ELEPHANT_LANDING, ELEPHANT_STOMP, ELEPHANT_WALK = 0x5F1E, 0x61D8, 0x62D8, 0x5DB9
+ELEPHANT_IDLE = 0x5C0B
 SPIDER_SHOT, SPIDER_WEB, SPIDER_JUMP, TINK_WEB = 0x4CA0, 0x6068, 0x5105, 0x6113
 SPIDER_SHOT_FLYING = (0x1A, 0x78DD)   # the shot's routine
 GROWN_SLOTS = [0xD000 + i * 126 if i < 93 else 0xA000 + (i - 93) * 126 for i in range(157)]
@@ -438,6 +449,128 @@ def check_webs(off, on, state):
           "jump takes hold, A on the web does nothing, and the tinkerbat climbs one pixel a frame")
 
 
+def check_web_edges(off, on, state):
+    """Climbing to the web wall's edges (the user's report on 2026-10-21: "if i touch the edge, i
+    automatically jump out of it"): its top opens onto the air at y 1205."""
+    for form, web in ((4, SPIDER_WEB), (5, TINK_WEB)):
+        for g, smooth in ((off, False), (on, True)):
+            g.load(state)
+            transform(g, form)
+            frames(g, "-", 20)
+            f = frames(g, "A", 12) + frames(g, "-", 50)
+            if smooth:
+                f = frames(g, "A", 6) + frames(g, "-", 3) + frames(g, "A", 1) + frames(g, "-", 4)
+            assert routines(f)[-1] == web, (form, g.name, "taking hold", [hex(r) for r in routines(f)])
+            f = frames(g, "U", 240)
+            if not smooth:
+                # Off the top and, Up still held, its jump takes hold again.
+                assert routines(f)[0] == web and len(routines(f)) > 1, \
+                    (form, g.name, "the top", [hex(r) for r in routines(f)], f[-1]["y"])
+                continue
+            for way, edge in (("U", None), ("L", None), ("R", None), ("D", None)):
+                if way != "U":
+                    f = frames(g, way, 260)   # the top (y 1205) to the bottom (1388) is 183
+                axis = "y" if way in "UD" else "x"
+                assert routines(f) == [web] and len({x[axis] for x in f[-30:]}) == 1, \
+                    (form, g.name, way, [hex(r) for r in routines(f)], [x[axis] for x in f[-30:]])
+            f = frames(g, "A", 1) + frames(g, "-", 30)
+            assert routines(f)[-1] != web, (form, g.name, "A at the edge", [hex(r) for r in routines(f)])
+    print("PASS: web edges, the spider and the tinkerbat: climbing to the top, left, right and bottom of the web "
+          "wall she stays on it, and A jumps off. Original: she jumps off its top (and with Up held takes hold again)")
+
+
+def check_elephant_walk_turn(off, on, state):
+    """The other way held from standing and from a walk (the user's report on 2026-10-21: "she does a turn
+    animation before you finally start moving")."""
+    walks = -0x101
+    for g, smooth in ((off, False), (on, True)):
+        for start in ("standing", "walking"):
+            elephant(g, state)
+            if start == "walking":
+                frames(g, "R", 12)
+            at = where(g)
+            f = frames(g, "L", 24)
+            s = steps(f, at)
+            assert ELEPHANT_TURN in routines(f) and routines(f)[-1] == ELEPHANT_WALK and f[-1]["slot"][0x31] == 1, \
+                (g.name, start, [hex(r) for r in routines(f)])
+            if smooth:
+                assert routines(f)[0] == ELEPHANT_TURN and s == [walks] * 24, (g.name, start, s)
+            else:
+                assert s[:11] == [0] * 11, (g.name, start, s)
+        elephant(g, state)
+        at = where(g)
+        f = frames(g, "L", 3) + frames(g, "-", 20)
+        s = steps(f, at)
+        assert routines(f) == [ELEPHANT_TURN, ELEPHANT_IDLE] and s == ([walks] * 3 if smooth else [0] * 3) + [0] * 20, \
+            (g.name, "tapped", [hex(r) for r in routines(f)], s)
+    print("PASS: the elephant turning, from standing and from a walk: she walks the way held from the press, "
+          "through the turn into the walk, a pixel on every frame; a tap turns her and stands. Original: ten "
+          "frames of the turn on the spot, and from a walk a frame at rest before it")
+
+
+def check_harpy_talon_run(off, on, state):
+    """A talon early in her run (the user's report on 2026-10-21: "i get some slight speed, claw, then lose
+    speed"): through the talon the speed goes on as the run's, +8 a frame, with one step a frame."""
+    for g, smooth in ((off, False), (on, True)):
+        g.load(state)
+        transform(g, 3)
+        frames(g, "-", 20)
+        frames(g, "L", 6)   # from the pit's middle, the long way to its left wall
+        before = frames(g, "L", 2)[-1]["speed"]
+        at = where(g)
+        f = frames(g, "BL", 1) + frames(g, "L", 26)
+        talon = [x for x in f if x["routine"] == HARPY_TALON]
+        speeds = [-(((x["speed"] ^ 0xFFFFFF) + 1) & 0xFFFFFF) for x in talon]
+        assert len(talon) == 20 and routines(f)[-1] == HARPY_RUN, (g.name, [hex(r) for r in routines(f)])
+        if smooth:
+            assert all(b - a == -8 for a, b in zip(speeds, speeds[1:])), (g.name, speeds)
+        else:
+            assert len(set(speeds)) == 1, (g.name, speeds)
+        # One step a frame: none longer than the speed she has after it ("Reduce input
+        # lag" ran the talon and the run in the tick their scripts picked them, after
+        # the routine before had moved her; the original's do too).
+        big = [(d, x["speed"]) for d, x in zip(steps(f, at), f) if -d > (((x["speed"] ^ 0xFFFFFF) + 1) & 0xFFFFFF) + 8]
+        assert not smooth or not big, (g.name, "two steps in a frame", big)
+    print("PASS: the harpy's talon in her run: the speed goes on as the run's, 8 more a frame, and the run after it "
+          "from there, a step a frame. Original: the talon holds the speed she had")
+
+
+def flap_sounds(g, before):
+    """The flaps' sounds (op BC 19 40 1E) queued since `before`, the queue's newest entry."""
+    q = g.mem(SOUNDS, 0x81)
+    i, n = before, 0
+    while i != q[0]:
+        i = (i + 8) & 0x7F
+        n += q[1 + i:1 + i + 4] == b"\x01\x19\x40\x1e"
+    return n
+
+
+def check_harpy_landing(off, on, state, tmp):
+    """A on every frame of a flap from standing, down to her landing and after it: a flap each time. The
+    original loses the landing frame and the one after it (the flight and the glide start the flap, then
+    land her and set the landing's script over it)."""
+    for g, smooth in ((off, False), (on, True)):
+        g.load(state)
+        transform(g, 3)
+        frames(g, "-", 20)
+        saved = Path(tmp, f"harpy-{g.name}.state").resolve().as_posix()
+        g.c.command("save_state", path=saved)
+        lost, landed = [], None
+        for k in range(2, 50):
+            g.c.command("set_input", buttons="-")
+            g.c.command("load_state", path=saved)
+            frames(g, "A", 1)
+            f = frames(g, "-", k - 1)
+            landed = landed or next((i + 1 for i, x in enumerate(f) if x["routine"] != HARPY_FLAP), None)
+            before = g.mem(SOUNDS, 1)[0]
+            frames(g, "A", 1)
+            if not flap_sounds(g, before):
+                lost.append(k)
+        assert landed and (not lost if smooth else lost), (g.name, "landed", landed, "lost", lost)
+    print(f"PASS: the harpy's A on every frame of a flap from standing, through her landing (frame {landed}) and "
+          "after it: each one flaps. Original: lost on the landing frames")
+
+
 def shot_flight(g, state, grown):
     """The spider walking left, B: the frames her shot flies and its last x."""
     g.load(state)
@@ -704,7 +837,11 @@ def main():
             check_charge_way(off, slide, args.dance_state)
             check_landing_charge(off, slide, args.dance_state)
             check_stomp(off, slide, args.dance_state)
+            check_elephant_walk_turn(off, slide, args.dance_state)
+            check_harpy_talon_run(off, slide, args.dance_state)
+            check_harpy_landing(off, slide, args.dance_state, tmp)
             check_webs(off, slide, args.web_state)
+            check_web_edges(off, slide, args.web_state)
             view = game("expanded view", expanded_view=1, view_width=426, view_height=240, room_zoom=0)
             view.c.command("window", width=1278, height=720, scaling_mode=0)
             check_shot_view(slide, view, args.dance_state)

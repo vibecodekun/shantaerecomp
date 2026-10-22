@@ -37,7 +37,10 @@
  * two pixels, and her talon (0D:751F) keeps it, but the talon ends in the idle
  * routine (0D:6D3A), whose three LD A,0 to +$41 (0D:6D86) drop it before the
  * run starts again from nothing. Here the idle keeps a speed that a held
- * direction goes on with.
+ * direction goes on with. The talon is the mover alone, so her speed stood
+ * still through it: a talon early in the run, at a fraction of a pixel, held
+ * her there for 20 ticks. Here a held direction changes it as the run does on
+ * the ground and the flight in the air.
  *
  * She flies by flapping: A in her flight routine (0D:72F4) starts the flap
  * script 0D:7210, whose native call 0D:7256 gives the lift (her vertical speed
@@ -45,7 +48,9 @@
  * air and plays sound $19. The talon routine (0D:751F) reads no buttons, so
  * every A during it was lost and she fell. Here a new A during the talon does
  * what the flap script does for it, at the script pass where the flap script
- * would, and the talon plays on.
+ * would, and the talon plays on. On the tick she reaches the ground (or the
+ * ground drops away under her run) the routine that took the A sets the
+ * landing's or the glide's script over the flap's; here the flap's is kept.
  *
  * The elephant charges with B (script 0D:64A5, routine 0D:650E) and the
  * tinkerbat with Down and B (1C:646D, 1C:64CA). The charge routines read no
@@ -69,6 +74,10 @@
  * jumps from the turn, facing the way it turns her; B charges from the
  * landing; and from the tick after the stomp's hit B charges, A jumps and a
  * direction hands on to the idle script, whose routine walks or turns her.
+ * The turn also stood her for its ten ticks, and a tick in the idle routine
+ * after it; from a walk, the walk routine set the turn's script and then its
+ * idle script over it for standing still (0D:5E35), a tick more. Here she
+ * walks the way held from the tick she turns, through the turn into the walk.
  *
  * The spider walks a pixel a tick (13:4C2E, 13:4C43) and has no run. Here B
  * held is two, with the walk's animation at twice the rate, and with "Air
@@ -89,7 +98,10 @@
  * nothing. Here the test finds a web in the air only on a new A and never as
  * a jump starts, and a new A on a web jumps off it with the script for
  * climbing off its top (13:5063, 1C:51B7): A jumps, A again takes hold, and
- * A on the web jumps off.
+ * A on the web jumps off. A step onto a tile that is neither web nor solid
+ * (the CP $02 after each step's test) left the web by itself, a jump off its
+ * top or its sides or a drop off its bottom (13:61FB, 1C:628A); here any tile
+ * that is not web is solid there, so she stays on it until A.
  *
  * The tinkerbat has the monkey's box. Hers (00:2975 loads it from each frame,
  * at +$47-+$4E) is 10 by 20 pixels, the monkey's 7 by 14 with the same feet
@@ -112,6 +124,7 @@ int shantae_player_move_early(GBContext *ctx);
 
 #define PAD_A 0x01
 #define PAD_B 0x02
+#define PAD_SELECT 0x04
 #define PAD_RIGHT 0x10
 #define PAD_LEFT 0x20
 #define PAD_DOWN 0x80
@@ -131,6 +144,18 @@ int shantae_player_move_early(GBContext *ctx);
 
 #define HARPY_TALON_SCRIPT 0x74E5   /* to 0D:751E; the talon routine follows it */
 #define HARPY_TALON 0x751F
+#define HARPY_FLIGHT 0x72A6
+#define HARPY_RUN 0x6F38
+#define HARPY_IDLE 0x6D3A
+#define HARPY_RET 0x7526            /* the talon routine's last RET */
+#define HARPY_GLIDE 0x6C35          /* script 0D:6BF0 */
+#define HARPY_FLAP_SCRIPT 0x7210    /* as 0D:7355 and 0D:6CD5 start it for A */
+#define HARPY_GLIDE_SCRIPT 0x6BF0
+#define HARPY_RUN_SCRIPT 0x6ED1
+#define HARPY_LANDING_SCRIPT 0x73EA
+#define HARPY_TOP_SPEED 0x200       /* her run's and flight's (0D:70BE, 0D:73AF) */
+#define HARPY_PUSH 0x10
+#define HARPY_DRAG 0x08             /* 0D:69D4, on the ground */
 #define FLAP_LIFT (-0x281)          /* $FFFD7F, 0D:7289 */
 #define FLAP_PULL 0x18              /* 0D:725B */
 
@@ -141,6 +166,7 @@ int shantae_player_move_early(GBContext *ctx);
 #define TINKERBAT_LANDING 0x5596
 #define ELEPHANT_IDLE_SCRIPT 0x5BE6
 #define ELEPHANT_TURN 0x5F1E        /* script 0D:5EF7 */
+#define ELEPHANT_TURN_SCRIPT 0x5EF7
 #define ELEPHANT_LANDING 0x61D8
 #define ELEPHANT_STOMP 0x62D8       /* script 0D:62A6, which ends where the routine starts */
 #define ELEPHANT_STOMP_SCRIPT 0x62A6
@@ -167,16 +193,18 @@ static const Charge s_charges[2] = {
 };
 
 /* The webs: the routine on one, the script that climbs off its top with a
- * jump, the CP $64 that ends the web test (13:476B, 1C:5D41), and where the
- * test returns to in the jump and fall routine and in the tinkerbat's jump
- * script (1C:529B). */
+ * jump, the CP $64 that ends the web test (13:476B, 1C:5D41), where the test
+ * returns to in the jump and fall routine and in the tinkerbat's jump script
+ * (1C:529B), and the CP $02 after the test in each step (left, up, right,
+ * down) that undoes it where the tile is solid. */
 typedef struct {
     uint8_t form, bank;
     uint16_t routine, jump_off, test, in_air, at_start;
+    uint16_t edges[4];
 } Web;
 static const Web s_webs[2] = {
-    {SPIDER, 0x13, 0x6068, 0x5063, 0x478D, 0x5192, 0},
-    {TINKERBAT, 0x1C, 0x6113, 0x51B7, 0x5D69, 0x5456, 0x52A5},
+    {SPIDER, 0x13, 0x6068, 0x5063, 0x478D, 0x5192, 0, {0x60F0, 0x612C, 0x6168, 0x61A4}},
+    {TINKERBAT, 0x1C, 0x6113, 0x51B7, 0x5D69, 0x5456, 0x52A5, {0x617F, 0x61BB, 0x61F7, 0x6233}},
 };
 
 /* The climbs: the first LD A of the speed up (and down), and the animation's ADD (SUB) $40. */
@@ -354,6 +382,21 @@ static void harpy_flap(GBContext *ctx, uint8_t *s) {
     e[4] = 0x00;
 }
 
+/* A new A on the tick she reaches the ground or leaves it: her flight
+ * (0D:72A6), glide (0D:6C35) and run (0D:6F38) take it first and start the
+ * flap script (0D:7355, 0D:6CD5, 0D:7044), and then, the mover having put her
+ * down or the ground having dropped away under her run, set the glide
+ * (0D:72C2, the run's 0D:69A9) or the landing (0D:6C55, 0D:6CA4) over it.
+ * Such a script, set this tick and not yet run, is the flap's again. */
+static void harpy_landing_flap(GBContext *ctx, uint8_t *s) {
+    if (!(ctx->hram[0x0C] & PAD_A) || *global(ctx, WALKED) || s[0x19] != 0x0D) return;
+    const unsigned routine = word_of(s + 0x1B), script = word_of(s + 0x02);
+    if (routine != HARPY_FLIGHT && routine != HARPY_GLIDE && routine != HARPY_RUN) return;
+    if (s[0x04] != 0x0D || word_of(s + 0x16) != 0x0080) return;
+    if (script == HARPY_GLIDE_SCRIPT || script == HARPY_RUN_SCRIPT || script == HARPY_LANDING_SCRIPT)
+        set_script(s, 0x0D, HARPY_FLAP_SCRIPT);
+}
+
 /* After this tick's routines and before the scripts: the script a routine
  * that takes no press (a charge, the elephant's turn, landing and stomp, the
  * tinkerbat's walk, run and landing for Down and B) has left is the one this
@@ -405,19 +448,77 @@ void shantae_forms_script_pass(GBContext *ctx) {
     uint8_t *s;
     if (!forms_on(ctx) || !(s = player_slot(ctx)) || s[0] == 0xFF) return;
     const uint8_t form = *global(ctx, FORM);
-    if (form == HARPY) harpy_flap(ctx, s);
+    if (form == HARPY) {
+        harpy_flap(ctx, s);
+        harpy_landing_flap(ctx, s);
+    }
     if (form == ELEPHANT || form == TINKERBAT) charge_presses(ctx, s, form);
     if (form == SPIDER || form == TINKERBAT) web_presses(ctx, s, &s_webs[form == TINKERBAT]);
 }
 
-/* --- The spider's shot ---------------------------------------------------- */
+/* --- At her movement JP: the talon, the turn, the spider's shot ----------- */
 
-int shantae_forms_dispatch(GBContext *ctx, uint16_t addr) {
-    if (!forms_on(ctx) || *global(ctx, FORM) != SPIDER || shantae_whip_moving() == SHANTAE_WHIP_ORIGINAL) return 0;
-    const unsigned p = player_pointer(ctx);
-    uint8_t *s;
-    if (!p || addr != (uint16_t)(p + 0x1A) || ctx->rom_bank != 0x13 || !(s = player_slot(ctx))) return 0;
-    if (s[0x19] != 0x13 || s[0x1A] != 0xC3 || word_of(s + 0x1B) != SPIDER_SHOT) return 0;
+static int32_t signed_speed(const uint8_t *s) {
+    return (int32_t)((uint32_t)(s[0x41] | s[0x42] << 8 | s[0x43] << 16) << 8) >> 8;
+}
+
+/* The harpy's talon (0D:751F) is the mover alone: her speed stays as the
+ * talon found it, so a talon early in her run held her near standing for its
+ * 20 ticks. With a direction held it changes as her run's does on the ground
+ * ($10 that way while under two pixels, 0D:7073, 0D:70BE, and the drag of
+ * 0D:69D4) and as her flight's in the air (0D:7374, 0D:73AF), and turns her. */
+static void harpy_talon_steer(GBContext *ctx, uint8_t *s) {
+    const uint8_t held = ctx->hram[0x0B];
+    if (!(held & (PAD_LEFT | PAD_RIGHT))) return;
+    const int left = (held & PAD_LEFT) != 0;
+    int32_t v = signed_speed(s);
+    if (left && v >= -(HARPY_TOP_SPEED + 1)) v -= HARPY_PUSH;
+    else if (!left && v < HARPY_TOP_SPEED) v += HARPY_PUSH;
+    s[0x31] = (uint8_t)left;
+    if (*global(ctx, STANCE) != 1) {   /* the drag, toward 0 and no further */
+        const int32_t was = v;
+        v += v < 0 ? HARPY_DRAG : -HARPY_DRAG;
+        if ((was < 0) != (v < 0)) v = 0;
+    }
+    set_speed(s, (uint32_t)v & 0xFFFFFF);
+}
+
+/* The JP at +$1A to a RET of the bank, in place of her routine. */
+static int skip_routine(GBContext *ctx) {
+    ctx->halt_bug = 0;
+    ctx->pc = HARPY_RET;
+    gb_tick(ctx, 16);
+    return 1;
+}
+
+/* Her idle (0D:6D3A) keeps her speed with a direction held the way she moves
+ * (0D:6D86) and hands on to the run (0D:6E21, 0D:6E47: its script and her
+ * facing). "Reduce input lag" runs the run in the same tick, so there the
+ * idle takes no step of its own: it sets the run's script and her facing and
+ * returns. Otherwise the end of a talon was two steps on each of two ticks,
+ * the talon's and the idle's, then the idle's and the run's. */
+static int harpy_idle_hands_on(GBContext *ctx, uint8_t *s) {
+    const uint8_t held = ctx->hram[0x0B];
+    const int moving = s[0x41] | s[0x42] | s[0x43], left = (s[0x43] & 0x80) != 0;
+    if (!shantae_reduce_input_lag() || !moving || !(held & (left ? PAD_LEFT : PAD_RIGHT))) return 0;
+    if (ctx->hram[0x0C] & (PAD_A | PAD_B | PAD_SELECT)) return 0;   /* the idle's own presses */
+    set_script(s, 0x0D, HARPY_RUN_SCRIPT);
+    s[0x31] = (uint8_t)left;
+    return skip_routine(ctx);
+}
+
+/* The elephant's turn (0D:5F1E, script 0D:5EF7: ten ticks, then 0D:5F15
+ * faces her about) stands her, the script's op 68 having zeroed her speed:
+ * with the way it turns her held she walks that way through it, at the walk's
+ * speed (0D:5E9C, 0D:5EBA). */
+static void elephant_turn_step(GBContext *ctx, uint8_t *s) {
+    const int left = s[0x31] == 0;   /* facing right, the turn faces her left */
+    set_speed(s, ctx->hram[0x0B] & (left ? PAD_LEFT : PAD_RIGHT) ? speed_bytes(WALK_SPEED, left) : 0);
+}
+
+/* The spider's shot (13:4CA0, a RET) with a direction held: the walk's mover. */
+static int spider_shot(GBContext *ctx, uint8_t *s) {
+    if (shantae_whip_moving() == SHANTAE_WHIP_ORIGINAL) return 0;
     const uint8_t held = ctx->hram[0x0B];
     if (!(held & (PAD_LEFT | PAD_RIGHT))) return 0;
     /* The walk before it has moved her in this tick ("Reduce input lag"). */
@@ -430,6 +531,29 @@ int shantae_forms_dispatch(GBContext *ctx, uint16_t addr) {
     ctx->pc = SPIDER_WALK_MOVER;
     gb_tick(ctx, 16);
     return 1;
+}
+
+int shantae_forms_dispatch(GBContext *ctx, uint16_t addr) {
+    if (!forms_on(ctx)) return 0;
+    const unsigned p = player_pointer(ctx);
+    uint8_t *s;
+    if (!p || addr != (uint16_t)(p + 0x1A) || !(s = player_slot(ctx))) return 0;
+    if (s[0x1A] != 0xC3 || ctx->rom_bank != s[0x19]) return 0;
+    const uint8_t form = *global(ctx, FORM);
+    const unsigned routine = word_of(s + 0x1B);
+    if (form == SPIDER && s[0x19] == 0x13 && routine == SPIDER_SHOT) return spider_shot(ctx, s);
+    if (s[0x19] != 0x0D || *global(ctx, INPUT_HELD) || *global(ctx, WALKED)) return 0;
+    if (form == HARPY && routine == HARPY_TALON) {
+        /* "Reduce input lag" runs it in the tick of the B, after her run has
+         * moved her: its first step waits for the next tick. */
+        if (stepped_this_tick(ctx, s)) return skip_routine(ctx);
+        harpy_talon_steer(ctx, s);
+    } else if (form == HARPY && routine == HARPY_IDLE) {
+        return harpy_idle_hands_on(ctx, s);
+    } else if (form == ELEPHANT && routine == ELEPHANT_TURN) {
+        elephant_turn_step(ctx, s);
+    }
+    return 0;   /* the JP goes on to the routine */
 }
 
 /* --- The operands ---------------------------------------------------------- */
@@ -494,14 +618,28 @@ static int web_operand(GBContext *ctx, const Web *w, uint8_t orig, uint8_t *valu
     return 1;
 }
 
+/* The CP $02 after a step's web test, where the tile is not a web: solid
+ * whatever it is, so the step is undone and she stays on the web. */
+static int web_edge(const Web *w, uint16_t pc) {
+    for (int i = 0; i < 4; i++)
+        if (pc == w->edges[i]) return 1;
+    return 0;
+}
+
 int shantae_forms_imm(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig, uint8_t *value) {
     uint8_t *s;
     if (!forms_on(ctx) || !(s = player(ctx))) return 0;
     const uint8_t form = *global(ctx, FORM), held = ctx->hram[0x0B];
     const Form *f = bank == 0x0D && form == MONKEY ? &s_monkey : bank == 0x1C && form == TINKERBAT ? &s_tinkerbat : 0;
-    for (int i = 0; i < 2; i++)
-        if (bank == s_webs[i].bank && pc == s_webs[i].test)
-            return form == s_webs[i].form && web_operand(ctx, &s_webs[i], orig, value);
+    for (int i = 0; i < 2; i++) {
+        if (bank != s_webs[i].bank) continue;
+        if (pc == s_webs[i].test) return form == s_webs[i].form && web_operand(ctx, &s_webs[i], orig, value);
+        if (web_edge(&s_webs[i], pc)) {
+            if (form != s_webs[i].form || orig != 0x02) return 0;
+            *value = ctx->a;
+            return 1;
+        }
+    }
     if (bank == 0x13) return form == SPIDER && spider_operand(ctx, s, pc, orig, value);
     /* The original operand is matched too: the generator's HALT-bug copies of
      * these instructions read the opcode as the operand. */
@@ -557,6 +695,26 @@ int shantae_forms_imm(GBContext *ctx, uint8_t bank, uint16_t pc, uint8_t orig, u
         const int moving = s[0x41] | s[0x42] | s[0x43], left = (s[0x43] & 0x80) != 0;
         if (!moving || !(held & (left ? PAD_LEFT : PAD_RIGHT))) return 0;
         *value = s[0x41 + (pc - 0x6D86) / 3];   /* she goes on at the speed she has */
+        return 1;
+    }
+    case 0x0D5C57: case 0x0D5C5A: case 0x0D5C5D: {   /* LD A,0: the elephant's idle stops her */
+        if (form != ELEPHANT || orig != 0x00) return 0;
+        /* After the turn she walks on the way it faced her, with no tick at
+         * rest; not where "Reduce input lag" runs it after the turn has moved
+         * her this tick (the walk it hands on to sets its own speed). */
+        const int moving = s[0x41] | s[0x42] | s[0x43], left = (s[0x43] & 0x80) != 0;
+        if (!moving || s[0x31] != left || !(held & (left ? PAD_LEFT : PAD_RIGHT)) || stepped_this_tick(ctx, s))
+            return 0;
+        *value = s[0x41 + (pc - 0x5C57) / 3];
+        return 1;
+    }
+    case 0x0D5E43: case 0x0D5E46: {                  /* LD A,$E6/$5B: the walk's idle script, at no speed */
+        /* Its turn (0D:5ED8) set this tick, with the other way held: kept. */
+        static const uint8_t turn[3] = {(uint8_t)ELEPHANT_TURN_SCRIPT, ELEPHANT_TURN_SCRIPT >> 8, 0x0D};
+        const unsigned byte = pc == 0x5E43 ? 0 : 1;
+        if (form != ELEPHANT || orig != (byte ? 0x5B : 0xE6)) return 0;
+        if (s[0x02] != turn[0] || s[0x03] != turn[1] || s[0x04] != turn[2]) return 0;
+        *value = turn[byte];
         return 1;
     }
     }

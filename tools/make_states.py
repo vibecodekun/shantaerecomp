@@ -38,6 +38,11 @@ one with that inventory.
   crawled through in play; flown to 680,1100 she passes it and drops into the
   labyrinth's own room (16-4096 x 256-3856), and a second flight takes her to
   the corridor.
+- genie.state: scene 0A (map 5E:8F, the first labyrinth's genie, as the
+  user's state4 of 2026-10-21), flown down to the cage and walked right to
+  3696,6776, beside the caged genie (0C:6CA7, at 3705): B frees her there
+  (0C:6CEB, her box and Shantae's overlapping), and the debug game's dances
+  learned do not open the cage.
 - shop.state: the first town (row N's first entry, map 679B inside), in
   through its fifth door, the shop: Shantae walked against the counter
   (x 327), B to talk, B through "What can I do for you?", and saved at the
@@ -236,6 +241,15 @@ def corridor(g, grid, out):
     save(g, out / "corridor.state", (2647, 3096))
 
 
+def genie(g, grid, out):
+    scene(g, grid, 0x0A)
+    fly_to(g, 3680, 6760)
+    walk_to(g, 3696)
+    press(g, "-", 20)
+    assert (0x6CA7, 3705, 6776) in objects(g, 0x0C), ("the caged genie", objects(g, 0x0C))
+    save(g, out / "genie.state", (3696, 6776))
+
+
 def scripts(g):
     """(bank, script pc) of each live slot among the first 32."""
     raw = g.mem(0xD000, 32 * 126, wram_bank=3)
@@ -275,7 +289,7 @@ def shop(g, grid, out):
 
 STATES = {"moveset.state": pit("moveset.state", 393), "dance.state": pit("dance.state", 400),
           "tinkerbat-gap.state": tinkerbat_gap, "pillar.state": pillar, "web.state": web,
-          "corridor.state": corridor, "shop.state": shop}
+          "corridor.state": corridor, "genie.state": genie, "shop.state": shop}
 
 
 def main():

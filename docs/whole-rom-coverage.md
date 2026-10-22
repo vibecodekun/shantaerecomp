@@ -73,8 +73,8 @@ checks use private contexts and do not read or write battery saves.
 | Check | Result |
 |---|---|
 | Whole-ROM map/signature audit | All 256 banks / 8,421,376 slots, zero missing entries |
-| `whole_rom_check variants` | 111,448 instruction comparisons, zero generated interpreter entries |
-| `whole_rom_check production` | 111,448 instruction comparisons through production dispatch |
+| `whole_rom_check variants` | 111,500 instruction comparisons, zero generated interpreter entries |
+| `whole_rom_check production` | 111,500 instruction comparisons through production dispatch |
 | `whole_rom_check patches` | 1,060,826 instruction comparisons: every position the eight ROM patches change, through production dispatch on each patched ROM |
 | `ram_native_check` | 291,191 instruction comparisons, zero generated interpreter entries |
 | Native-target regression | 3,966 entries, two script calls, two far returns; zero failures |

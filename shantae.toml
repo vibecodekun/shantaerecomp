@@ -520,6 +520,34 @@ bank = 0x0D
 addr = 0x6D8C
 note = "LD A,$00: the harpy's idle speed, sign"
 
+# The elephant's turn (forms.c) walks her the way it turns her; after it her
+# idle (0D:5C0B) keeps that speed into the walk, and the walk's turn (0D:5ED8)
+# is not replaced by its idle script for standing still.
+[[imm_override]]
+bank = 0x0D
+addr = 0x5C57
+note = "LD A,$00 in the elephant's idle 0D:5C0B: her speed, low byte"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x5C5A
+note = "LD A,$00: the elephant's idle speed, pixels"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x5C5D
+note = "LD A,$00: the elephant's idle speed, sign"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x5E43
+note = "LD A,$E6 in 0D:5E35, the walk's idle script at no speed: low byte"
+
+[[imm_override]]
+bank = 0x0D
+addr = 0x5E46
+note = "LD A,$5B: its high byte"
+
 # The monkey's air claw (0D:4ED7) only turns her and keeps the jump's speed:
 # a direction also gives the jump's speed (0D:4E3C, 0D:4E68), as the tinkerbat's
 # air sword does.
@@ -780,6 +808,50 @@ note = "CP $64 in 13:476B: the tile by her feet is a web"
 bank = 0x1C
 addr = 0x5D69
 note = "CP $64 in 1C:5D41: the tile by her feet is a web"
+
+# A web's edge (forms.c): a step on a web onto a tile that is neither web nor
+# solid sets +$74, and the routine's end (13:61FB, 1C:628A) jumps or drops her
+# off. With the option every tile that is not web is solid there: she stays on
+# the web until A.
+[[imm_override]]
+bank = 0x13
+addr = 0x60F0
+note = "CP $02 in 13:60D9 after the web test: the tile left of her is solid"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x612C
+note = "CP $02 in 13:6115: the tile above"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x6168
+note = "CP $02 in 13:6151: the tile right"
+
+[[imm_override]]
+bank = 0x13
+addr = 0x61A4
+note = "CP $02 in 13:618D: the tile below"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x617F
+note = "CP $02 in 1C:6168 after the web test: the tile left of her is solid"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x61BB
+note = "CP $02 in 1C:61A4: the tile above"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x61F7
+note = "CP $02 in 1C:61E0: the tile right"
+
+[[imm_override]]
+bank = 0x1C
+addr = 0x6233
+note = "CP $02 in 1C:621C: the tile below"
 
 # The spider's shot (expanded_view.c): its lifetime, +$61, counted down.
 [[imm_override]]

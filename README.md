@@ -200,9 +200,12 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
     standing or walking (in the original they stop for 16 and 13 frames, even mid-run), and
     their jumps follow Air speed; the monkey's air claw keeps the jump's speed. Climbing,
     walls and webs, is twice as fast with B held. The harpy keeps her speed when her talons
-    end (the original stops her for a frame and starts the run again from nothing), and A
-    still flaps during a talon, with the flap's sound, while the talon plays out (the
-    original drops those presses and she sinks). The tinkerbat has the monkey's box, so she
+    end (the original stops her for a frame and starts the run again from nothing), and her
+    run goes on gaining speed through a talon with the direction held (the original holds
+    the speed she had, so a talon early in the run left her crawling); A still flaps during
+    a talon, with the flap's sound, while the talon plays out (the original drops those
+    presses and she sinks), and on the frame she touches the ground (the original lost A
+    there, and again on the next frame). The tinkerbat has the monkey's box, so she
     climbs and walks into the 16-pixel gaps and pipes the monkey can (her own is 20 pixels
     tall, the monkey's 14).
     The elephant's and the tinkerbat's charges can be pressed again, at full speed, or
@@ -210,11 +213,14 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
     charges with Down and B from her walk, run and landing, so she can break what she
     pushes into. The elephant charges (or jumps) from her turn and charges from her
     landing, and from the frame after a stomp's hit she can walk, charge or jump (the
-    original holds her for 40 frames). The spider runs with B held, at two pixels a frame
+    original holds her for 40 frames). Turning the other way, she walks off at once while
+    her turn plays (the original stands her for its ten frames, and from a walk one more).
+    The spider runs with B held, at two pixels a frame
     (in the air too with Air speed), and keeps moving through her shot with Whip on the
     move. On webs, the spider and the tinkerbat jump normally in front of one and take
     hold with A in the air; A on a web jumps off it, and A again takes hold (the original
-    takes hold as the jump starts and ignores A on the web).
+    takes hold as the jump starts and ignores A on the web). They stay on a web up to its
+    edges until A (the original jumps or drops them off at an edge).
     *Original*: they move as in the game.
 
   Off plays as the original, frame for frame. The Esc → Shantae controls apply at once.
@@ -246,7 +252,12 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
   where they broke: in Risky's hold, and again where she takes the Twinkle, her
   script could lose a signal sent while she was still laughing if the lines went by
   fast, and she laughed for good with Shantae frozen. Her signals now count, so both
-  scenes play through at any speed; at 0 everything plays as the original.
+  scenes play through at any speed. A freed genie's "Thank you for freeing me!" could
+  end before the genie had started to wait for it: the Dance Menu then opened without
+  her dance (with the expanded view showing its graphics as they loaded), and she
+  danced afterwards and left the screen white until Shantae danced. Her wait now keeps
+  that signal, so she dances first, then the flash and the menu, at any speed. At 0
+  everything plays as the original.
 - **Expanded view** (off by default): a larger world view with the original pixel
   scale and the status bar at the bottom, 256×240 (NES size) unless changed. Enable
   it on the Mods page, then launch. Its options set the size: **Adaptive** fills the

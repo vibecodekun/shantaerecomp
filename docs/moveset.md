@@ -7,10 +7,12 @@ walking speed, and B whips while crawling under a low ceiling. It is a
 set of hooks in her own
 movement routines in bank 6. Its *Transformations* option (`forms.c`, below) does the same
 for the monkey and the tinkerbat, gives the spider a run and every climb a faster one with B,
-keeps the harpy's speed and her flaps through her talons, lets a charge be pressed again,
-turned, jumped out of and started from the elephant's turn, landing and stomp, gives the
-tinkerbat the monkey's box, and makes a web something A takes hold of and jumps off. Off, none
-of them does anything and the game plays as the original, frame for frame.
+keeps the harpy's speed (her run going on through her talons) and her flaps through her
+talons and on the frame she lands, lets a charge be pressed again, turned, jumped out of and
+started from the elephant's turn, landing and stomp, walks the elephant through her turn,
+gives the tinkerbat the monkey's box, and makes a web something A takes hold of, stays on to
+its edges and jumps off. Off, none of them does anything and the game plays as the original,
+frame for frame.
 
 Addresses are `bank:address` in the USA ROM (CRC32 `E994B59B`). The routines were read in
 Ghidra 12 with GhidraBoy (`tools/build_ghidraboy.py`) and confirmed by tracing the game
@@ -227,6 +229,18 @@ before the run starts again from nothing. With the option the idle keeps her spe
 direction is held the way she is moving, so the run goes on from it. That also keeps her
 speed when she lands from flight with the direction held.
 
+The talon routine is the mover and the landing test alone, so through its 20 ticks her speed
+stood where the talon found it: a talon early in the run, at a fraction of a pixel a tick, held
+her there, and the run then had to build from it (the user's report on 2026-10-21: "i get some
+slight speed, claw, then lose speed"). With the option, at her movement `JP` (the dispatcher in
+`ram_native.c`), a held direction changes her speed during the talon as her run does on the
+ground (0D:7073, 0D:70BE: $10 that way while under two pixels, then the drag of 0D:69D4) and her
+flight does in the air (0D:7374, 0D:73AF), and turns her. With "Reduce input lag" the talon and
+the run are each run in the tick their script picks them, after the routine before has moved
+her; the talon's first step then waits for the next tick, and the idle that hands on to the run
+takes no step of its own (it sets the run's script and her facing, as 0D:6E21 and 0D:6E47 do),
+so she moves a step a tick through a talon and out of it.
+
 She flies by flapping. A in her flight routine (0D:72A6, the test at 0D:72F4) calls 0D:7355,
 which starts the flap script 0D:7210. Decoded by its opcodes, that script sets the flight
 routine (op 2E), calls 0D:7256 (op 32), which takes $18 from her vertical speed at +$44 and
@@ -242,6 +256,18 @@ moves on 8 and `01 19 40 1E 00` goes to `C204` + `C203`). The talon's script, an
 hit (04:5641) go on untouched, and the talon ends as it does in the air (its script tests
 `CB54` at 0D:7515). From her run on the ground an A lifts her off the same way; the original
 lands her from flight in the run with `CB54` still 1, as here.
+
+An A could also be lost as she reached the ground (the user's report and video on 2026-10-21,
+the A that "occasionally" did nothing in the air). Her flight (0D:72A6), her glide (0D:6C35,
+script 0D:6BF0) and her run (0D:6F38) take A first and start the flap (0D:7355, 0D:6CD5,
+0D:7044), and only then move her; when the mover puts her down, or the ground drops away under
+her run, the same routine sets the glide's script (0D:72C2, the run's 0D:69A9) or the landing's
+(0D:6C55 the run, 0D:6CA4 standing, 0D:73EA) over the flap's, which never runs. With "Reduce
+input lag" the glide is run again in that tick and lands her, so two frames lost the press. Over
+the desert's slopes the user played on in their state3, A on the frames around each touch of the
+ground did nothing. With the option, at the start of the script pass, a new A with her routine
+the flight, the glide or the run and her script one of those, set this tick and not yet run
+(its start, its timer $0080), sets the flap's script again.
 
 **The tinkerbat has the monkey's box.** Hers (00:2975 loads it with each frame of animation,
 at +$47–+$4E) is 10 by 20 pixels; the monkey's is 7 by 14, with the same feet and middle. The
@@ -277,6 +303,18 @@ and A jumps from the turn, facing the way it turns her; B charges from the landi
 the tick after the stomp's hit B charges, A jumps and a direction hands on to the idle
 script, whose routine walks or turns her. With nothing pressed the stomp plays out.
 
+The turn also stood her: the other way held from standing was ten ticks of the turn on the spot
+(its script's op 68 zeroes her speed, and its routine is the mover alone), then a tick in the
+idle routine, whose `LD A,0` (0D:5C57) stop her as it starts the walk; from a walk, the walk
+routine (0D:5E9C, 0D:5EBA) set the turn's script and then, finding her speed zero, its idle
+script over it (0D:5E35), a tick more (the user's report on 2026-10-21: "she does a turn
+animation before you finally start moving"). With the option she walks the way held through the
+turn, at the walk's speed, from her movement `JP`, while the turn's animation plays; the idle
+after it keeps that speed with the direction held the way she faces, and the walk's turn is
+kept (its idle script's address at 0D:5E43 and 0D:5E46 is the turn's when the turn was set this
+tick). Where "Reduce input lag" runs the idle in the tick of the turn's last step, the idle
+keeps no speed, so she moves a step a tick; the walk it hands on to sets its own.
+
 **The spider (bank 13)** walks a pixel a tick (13:4C2E, 13:4C43) and has no run. With the
 option B held is two, with the walk's animation at twice the rate, and with *Air speed* the
 same in her jump (13:5280, 13:5295). A new B starts her shot (script 13:4C77), whose routine
@@ -295,6 +333,16 @@ option the test finds a web in the air only on a new A (its return address tells
 test from the climb's), never as the jump starts, and a new A on a web jumps off it with the
 script for climbing off its top (13:5063, 1C:51B7): A jumps, A again takes hold, and A on the
 web jumps off.
+
+Each step on a web is undone where the tile is solid: after the web test's `CP $64`, a
+`CP $02` (13:60F0, 13:612C, 13:6168, 13:61A4; 1C:617F, 1C:61BB, 1C:61F7, 1C:6233) tells a wall
+from anything else, and any other tile sets a bit of +$74 for the way she went, which the
+routine's end (13:61FB, 1C:628A) turns into leaving the web: a jump off its top or its sides, a
+drop off its bottom. So with A taking hold and jumping off, a web still let go of her by itself
+at its edges (the user's report on 2026-10-21, their state2 in the first labyrinth, the tinkerbat
+and the spider alike: "i'd rather stick to spider walls until i press "a" again"). With the
+option that `CP $02` compares equal for every tile that is not a web: the step is undone, she
+stays on the web at its edge, and A jumps off.
 
 ## Hook sites
 
@@ -320,10 +368,11 @@ All are `[[imm_override]]` sites in `shantae.toml`; the hook is `shantae_moves_i
 
 The transformations' sites; the hook is `shantae_forms_imm` in `forms.c`, the run flag and
 the tinkerbat's box are `shantae_forms_tick`, called with Shantae's, the presses at the start
-of the script pass (the harpy's flaps, the charges, the elephant's turn, landing and stomp, A
-on a web) are `shantae_forms_script_pass`, called at the existing 00:130B site, and the
-spider's shot on the move is `shantae_forms_dispatch`, called by the dispatcher at an object's
-movement `JP` (`ram_native.c`).
+of the script pass (the harpy's flaps, in a talon and as she lands, the charges, the elephant's
+turn, landing and stomp, A on a web) are `shantae_forms_script_pass`, called at the existing
+00:130B site, and the spider's shot on the move, the harpy's talon and her idle's hand-on to the
+run, and the elephant's walk through her turn are `shantae_forms_dispatch`, called by the
+dispatcher at her movement `JP` (`ram_native.c`).
 
 | Site | Instruction | Hook |
 |------|-------------|------|
@@ -334,10 +383,13 @@ movement `JP` (`ram_native.c`).
 | 0D:4B73…4B9D; 1C:5135…515F | `LD A` speed bytes, `ADD`/`SUB $40` | climbing with B held |
 | 0D:4578, 4894; 1C:4C43, 4E63 | `AND $02` | cancel: no attack with a direction held |
 | 0D:6D86, 6D89, 6D8C | `LD A,$00` | the harpy keeps her speed |
+| 0D:5C57, 5C5A, 5C5D | `LD A,$00` | the elephant's idle keeps the speed of her turn |
+| 0D:5E43, 5E46 | `LD A,$E6/$5B` | the walk's turn is not replaced by its idle script |
 | 13:4C32…4C4D, 13:528B…52A6 | `LD A` speed bytes | the spider's walk and jump with B held |
 | 13:60DE…61AD; 1C:616D…623C | `SUB`/`ADD $01` | a step on a web and its undo, with B held |
 | 13:61CE; 1C:625D | `ADD A,$80/$40` | the web's animation, with B held |
 | 13:478D; 1C:5D69 | `CP $64` | the web test: in the air only on a new A |
+| 13:60F0, 612C, 6168, 61A4; 1C:617F, 61BB, 61F7, 6233 | `CP $02` | a step off a web's edge is undone, as into a wall |
 
 ## Checks
 
@@ -411,6 +463,14 @@ turned into the spider and the tinkerbat), with Transformations off and on:
 - The elephant's turn: B charges and A jumps the way it turns her; B on her landing's first,
   11th and 26th frames charges; on the frame after a stomp's hit a direction walks, B charges
   and A jumps, and with Down alone it plays its 40 frames. The original drops those presses.
+- The elephant turning left, from standing and from a walk right: a pixel left on every frame
+  from the press, through the turn into the walk; Left tapped for three frames turns her and
+  stands her. The original stands for the turn's ten frames, and from a walk a frame more.
+- The harpy's talon two frames into her run left: through its 20 frames the speed goes on
+  8 more a frame, as the run's, and no frame moves her more than her speed. The original holds
+  the speed she had.
+- The harpy's A on each frame from 2 to 49 after a standing flap, through her landing: each
+  queues a flap's sound. The original loses the landing frames.
 - Climbing with B held, the monkey and the tinkerbat: two pixels a frame. The monkey's air
   claw: run speed with B held, walk speed without.
 - The spider: two pixels a frame with B held; a shot on the move keeps her moving and its web
@@ -418,6 +478,9 @@ turned into the spider and the tinkerbat), with Transformations off and on:
 - Webs, the spider and the tinkerbat: a jump in front of one is a jump, A in the air takes
   hold, A on it jumps off and A again takes hold; the tinkerbat climbs two pixels a frame
   with B held. The original takes hold as the jump starts and ignores A on the web.
+- Web edges, the spider and the tinkerbat: from the web wall, Up to its top (which opens onto
+  the air at y 1205), then Left, Right and Down to its edges: on the web throughout, standing
+  at each edge, and A there jumps off. The original jumps off at the top.
 - The spider's shot in the expanded view (426 by 240): it flies until it leaves the picture
   (here the room's left edge, 49 frames), in the original view its 29 (`docs/expanded-view.md`).
 - `--original <exe>`: with Transformations off, 1844 frames of the tinkerbat's, the monkey's,

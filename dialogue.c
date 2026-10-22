@@ -68,9 +68,30 @@
  * one of those or signals once and waits for the receiver's answer (CA9C-
  * CA9E), sends its signals on fixed waits after a single text (Mimic,
  * 1C:6F5E), or sets a flag that only plays an animation while it is on (the
- * opening, [C030]+$18). Ops dispatch at 00:1345 and, after a jump op, at
- * 00:1A12; each change is made at the slot's next dispatch, once the op has
- * written, all within one run of its script.
+ * opening, [C030]+$18).
+ *
+ * A freed genie signals through game RAM instead, with op 94 (a byte to an
+ * address). The speaker (0C:71C0) prints "Thank you for freeing me!", sets
+ * CBEB to 1 (0C:71E2) and waits while it is 1; the genie (0C:6D3A) plays
+ * four frames until its op 48 passes, then clears CBEB (0C:6D56) and waits
+ * while it is 0 (0C:6D72) before its dance, which sets CBEB to 2 (0C:6E16).
+ * The speaker then waits while it is 2 and 3, the genie flashes the screen
+ * white and opens the Dance Menu (01:61F1, 01:6098), and the menu's end sets
+ * 4 (05:678F). With the text quick, the speaker's 1 came about three frames
+ * before the genie's clear, which wiped it: the speaker went on to the Dance
+ * Menu with no flash (the expanded view's surround showing the menu's tiles
+ * as they loaded), and the genie danced afterwards on the menu's 4 and left
+ * the screen white, waiting for a 3 that had come and gone. So with Text
+ * speed on that clear leaves a 1 that is already waiting. The original never
+ * has one waiting there (the text takes longer than the four frames). Of
+ * the other bytes a script clears and then waits on, none is signalled
+ * after a text but a screen shake's flag (C003, 15:705E), which only shakes
+ * the screen while it is on, and CBEB's other waiter (1F:7124) is signalled
+ * from the Dance Menu (24:5E3A).
+ *
+ * Ops dispatch at 00:1345 and, after a jump op, at 00:1A12; each change is
+ * made at the slot's next dispatch, once the op has written, all within one
+ * run of its script.
  */
 #include "dialogue.h"
 #include "gbrt.h"
@@ -82,6 +103,7 @@
 #define OP_WAIT 0x1C
 #define OP_SIGNAL 0x7C     /* write a byte to a field of the slot a pointer holds */
 #define OP_SET_18 0x30     /* write a byte to the slot's own $18 */
+#define OP_WRITE 0x94      /* write a byte to an address */
 #define TIMER_HIGH 0x17    /* frames of the slot's timer (+$16 is the fraction) */
 #define SIGNAL_FIELD 0x18
 
@@ -118,6 +140,19 @@ static const struct {
     {0x11, {0x56F0, 0x5736, 0x5755}, {0x5599, 0x55B5, 0x55F6}, 0x559F},
 };
 
+/* Scenes whose speaker signals through a byte of game RAM that the receiver
+ * clears as it begins to wait: the receiver's clear (op 94), the byte and the
+ * speaker's signal, which the clear leaves when it is already there. */
+static const struct {
+    uint8_t bank;
+    uint16_t clear, addr;
+    uint8_t signal;
+} kept_signals[] = {
+    /* A freed genie: the speaker 0C:71C0 sets CBEB to 1 after its text
+     * (0C:71E2), the genie clears it (0C:6D56) and waits for it. */
+    {0x0C, 0x6D56, 0xCBEB, 1},
+};
+
 static struct {
     unsigned slot;          /* the speaker given frames this pass, 0 none */
     int spare;              /* frames of waiting it may still pass over */
@@ -126,7 +161,8 @@ static struct {
     uint32_t limit;
     int b_age;              /* script passes since B was last held */
     unsigned after_slot;    /* a slot whose op wrote a field to set at its next dispatch */
-    unsigned after_addr;
+    unsigned after_addr;    /* in the object table, or game RAM with after_global */
+    int after_global;
     uint8_t after_value;
 } s;
 static unsigned long long s_waits, s_frames, s_signals;
@@ -215,7 +251,24 @@ static void count_signal(GBContext *ctx, unsigned slot, uint8_t bank, uint8_t co
         if (value > 0xFF) value = 0xFF;
         s.after_slot = slot;
         s.after_addr = addr;
+        s.after_global = 0;
         s.after_value = (uint8_t)value;
+        return;
+    }
+}
+
+/* A receiver's clear (op 94: the address, then the byte): a signal already
+ * there is set again after it. */
+static void keep_signal(GBContext *ctx, unsigned slot, uint8_t bank, uint16_t operand) {
+    const uint16_t op = (uint16_t)(operand - 1);
+    for (size_t i = 0; i < sizeof(kept_signals) / sizeof(kept_signals[0]); ++i) {
+        const unsigned addr = kept_signals[i].addr;
+        if (kept_signals[i].bank != bank || kept_signals[i].clear != op || !ctx->wram) continue;
+        if (ctx->wram[addr - 0xC000] != kept_signals[i].signal) return;
+        s.after_slot = slot;
+        s.after_addr = addr;
+        s.after_global = 1;
+        s.after_value = kept_signals[i].signal;
         return;
     }
 }
@@ -224,7 +277,7 @@ void shantae_script_op(GBContext *ctx) {
     const unsigned slot = ctx->bc;
     if (s.after_slot) {
         if (s.after_slot == slot) {
-            uint8_t *field = slot_field(ctx, s.after_addr);
+            uint8_t *field = s.after_global ? ctx->wram + (s.after_addr - 0xC000) : slot_field(ctx, s.after_addr);
             if (field && *field != s.after_value) {
                 *field = s.after_value;
                 s_signals++;
@@ -240,6 +293,8 @@ void shantae_script_op(GBContext *ctx) {
             if (text_waits[i].bank == bank && text_waits[i].op == op) shorten_wait(ctx, slot, operand);
     } else if (code == OP_SIGNAL || code == OP_SET_18) {
         count_signal(ctx, slot, bank, code, operand);
+    } else if (code == OP_WRITE) {
+        keep_signal(ctx, slot, bank, operand);
     }
 }
 
