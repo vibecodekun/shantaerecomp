@@ -39,6 +39,11 @@ void shantae_view_state_file_loaded(struct GBContext *ctx);
 int shantae_view_width(void);
 int shantae_view_height(void);
 void shantae_set_view_size(int width, int height);
+/* The rows of the picture last presented that its bottom UI takes (the
+ * status bar, a dialogue box, a town's panel), for the buttons' HUD: the
+ * view's, or with `native` the Game Boy's own picture's (its window at the
+ * bottom). */
+int shantae_view_bottom_rows(const struct GBContext *ctx, int native);
 /* Adaptive: the view fills the window or screen and is at least the view
  * height tall (gb_custom_fill_size); the stored width is kept for when a fixed
  * size is chosen again. */

@@ -7,6 +7,9 @@ target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/movese
 target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/dance.c")
 target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/forms.c")
 target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/dialogue.c")
+target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/transform.c")
+target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/hud.c")
+target_sources(${GBRECOMP_GAME_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/map.c")
 
 # The generated project builds for size (-Os, the ROM code at -O1). The
 # runtime and this game's modules run every frame: the PPU, APU and timers,
@@ -23,6 +26,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT CMAKE_BUILD_TYPE STREQUAL "De
         "${CMAKE_CURRENT_LIST_DIR}/dance.c"
         "${CMAKE_CURRENT_LIST_DIR}/forms.c"
         "${CMAKE_CURRENT_LIST_DIR}/dialogue.c"
+        "${CMAKE_CURRENT_LIST_DIR}/transform.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/../extras.c"
         PROPERTIES COMPILE_OPTIONS -O2)
 endif()
@@ -50,6 +54,11 @@ add_executable(object_slots_check EXCLUDE_FROM_ALL
     "${CMAKE_CURRENT_LIST_DIR}/tools/object_slots_check.c" $<TARGET_OBJECTS:shantae_check_code>)
 target_include_directories(object_slots_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(object_slots_check PRIVATE gbrt)
+
+add_executable(trace_writes EXCLUDE_FROM_ALL
+    "${CMAKE_CURRENT_LIST_DIR}/tools/trace_writes.c" $<TARGET_OBJECTS:shantae_check_code>)
+target_include_directories(trace_writes PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(trace_writes PRIVATE gbrt)
 
 add_executable(expanded_view_check EXCLUDE_FROM_ALL
     "${CMAKE_CURRENT_LIST_DIR}/tools/expanded_view_check.c"

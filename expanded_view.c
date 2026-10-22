@@ -6,6 +6,10 @@
 #include "expanded_view.h"
 #include "object_slots.h"
 #include "dialogue.h"
+#include "transform.h"
+#include "hud.h"
+#include "map.h"
+#include "stb_image_write.h"
 #include "gb_custom_view.h"
 #include "gbrt.h"
 #include "ppu.h"
@@ -452,6 +456,15 @@ static int window_blocks(void) {
 static int ui_band(int lines) {
     return lines ? (int)ceil(lines * ui_rows - 1e-6) : 0;
 }
+/* The rows the bottom UI took in the last picture render drew. */
+static int shown_band;
+
+int shantae_view_bottom_rows(const GBContext *ctx, int native) {
+    if (!native) return shown_band;
+    const GBPPU *ppu = ctx ? (const GBPPU *)ctx->ppu : NULL;
+    if (!ppu || !(ppu->lcdc & 0x80) || !(ppu->lcdc & 0x20) || ppu->wx >= 167 || ppu->wy >= 144) return 0;
+    return 144 - ppu->wy;
+}
 /* The height the world is laid out in (view_origin): the picture less the
  * rows the bottom UI takes beyond the room's own rows under it (the status
  * bar's 16; a town's art ends above its panel), so the room's floor stays
@@ -687,6 +700,7 @@ static int render(GBContext *ctx, uint32_t *out, int width, const uint32_t *nati
     if (band > base_band && ui_fit)
         layout_band = clamp(height - (fit_rows > 0 ? fit_rows : height - base_band), base_band, band);
     ui_extra_rows = layout_band - hidden;
+    shown_band = band;
     int world_height = height - band;
     const Box box = shown_room(ctx, &room.box);
     int min_x = box.x0, min_y = box.y0;
@@ -1180,6 +1194,14 @@ void shantae_view_apply_size(void) {
     gb_custom_native_scale = shantae_native_scale();
 }
 
+/* A whole number in a debug command's JSON, or `fallback`. */
+static int json_int(const char *json, const char *key, int fallback) {
+    char quoted[40];
+    snprintf(quoted, sizeof(quoted), "\"%s\"", key);
+    const char *v = json ? strstr(json, quoted) : NULL;
+    return v && (v = strchr(v + strlen(quoted), ':')) ? atoi(v + 1) : fallback;
+}
+
 int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
     (void)json;
     if (!strcmp(cmd, "shantae_hold_info") && s_ctx) {
@@ -1195,6 +1217,115 @@ int game_handle_debug_cmd(const char *cmd, int id, const char *json) {
                                  (unsigned long long)s_ctx->frame_hold.holds,
                                  (unsigned long long)s_ctx->frame_hold.limit_hits, fresh, original,
                                  early_moves, replays, text_waits, text_frames, signals);
+        return 1;
+    }
+    if (!strcmp(cmd, "shantae_hud") && s_ctx) {
+        /* The buttons' HUD (hud.c) as a PNG: {"path": ...}, as a window would
+         * draw it at one pixel a pixel. */
+        static uint32_t pixels[SHANTAE_HUD_MAX_W * SHANTAE_HUD_MAX_H];
+        char path[512] = "";
+        const char *v = json ? strstr(json, "\"path\"") : NULL;
+        if (v && (v = strchr(v + 6, '"'))) {
+            size_t n = 0;
+            for (++v; *v && *v != '"' && n + 1 < sizeof(path); ++v) path[n++] = *v;
+            path[n] = 0;
+        }
+        int w = 0, h = 0;
+        const int drawn = shantae_hud_draw(s_ctx, pixels, &w, &h);
+        if (drawn && path[0]) {
+            static uint8_t rgba[SHANTAE_HUD_MAX_W * SHANTAE_HUD_MAX_H * 4];
+            for (int i = 0; i < w * h; ++i) {
+                rgba[i * 4] = (uint8_t)(pixels[i] >> 16);
+                rgba[i * 4 + 1] = (uint8_t)(pixels[i] >> 8);
+                rgba[i * 4 + 2] = (uint8_t)pixels[i];
+                rgba[i * 4 + 3] = (uint8_t)(pixels[i] >> 24);
+            }
+            stbi_write_png(path, w, h, 4, rgba, w * 4);
+        }
+        /* {"clock": path, "scale": n}: the day and night clock, n screen
+         * pixels a pixel. */
+        char clock_path[512] = "";
+        const char *k = json ? strstr(json, "\"clock\"") : NULL;
+        if (k && (k = strchr(k + 7, '"'))) {
+            size_t n = 0;
+            for (++k; *k && *k != '"' && n + 1 < sizeof(clock_path); ++k) clock_path[n++] = *k;
+            clock_path[n] = 0;
+        }
+        static uint32_t clock[SHANTAE_CLOCK_W * SHANTAE_CLOCK_H];
+        int cw = 0, ch = 0;
+        const int clock_drawn = shantae_clock_draw(s_ctx, clock, &cw, &ch);
+        const int scale = clamp(json_int(json, "scale", 1), 1, 16);
+        if (clock_drawn && clock_path[0]) {
+            uint8_t *rgba = malloc((size_t)cw * ch * scale * scale * 4);
+            for (int y = 0; rgba && y < ch * scale; ++y)
+                for (int x = 0; x < cw * scale; ++x) {
+                    const uint32_t c = clock[(y / scale) * cw + x / scale];
+                    uint8_t *p = rgba + ((size_t)y * cw * scale + x) * 4;
+                    p[0] = (uint8_t)(c >> 16), p[1] = (uint8_t)(c >> 8), p[2] = (uint8_t)c, p[3] = (uint8_t)(c >> 24);
+                }
+            if (rgba) stbi_write_png(clock_path, cw * scale, ch * scale, 4, rgba, cw * scale * 4);
+            free(rgba);
+        }
+        gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"drawn\":%d,\"width\":%d,\"height\":%d,\"clock\":%d}", id,
+                                 drawn, w, h, clock_drawn);
+        return 1;
+    }
+    if (!strcmp(cmd, "shantae_map") && s_ctx) {
+        /* The map (map.c): {"open": 0/1} opens or closes it as its button
+         * does; {"path": ..., "width", "height", "zoom": 0 cells / 1 terrain,
+         * "page" (-1 where she is), "x", "y" (page pixels), "whole": -1/0/1}
+         * writes it as a PNG; {"describe": path} writes what it found as
+         * JSON (shantae_map_describe). Reports the areas, cells, explored
+         * cells and markers found, and whether it is open. */
+        const int open = json_int(json, "open", -1);
+        if (open >= 0 && open != shantae_map_is_open()) shantae_map_toggle(s_ctx);
+        char path[512] = "";
+        const char *v = json ? strstr(json, "\"path\"") : NULL;
+        if (v && (v = strchr(v + 6, '"'))) {
+            size_t n = 0;
+            for (++v; *v && *v != '"' && n + 1 < sizeof(path); ++v) path[n++] = *v;
+            path[n] = 0;
+        }
+        int drawn = 0;
+        if (path[0]) {
+            const int w = json_int(json, "width", 480), h = json_int(json, "height", 270);
+            shantae_map_debug_view(s_ctx, json_int(json, "zoom", 1), json_int(json, "page", -1), json_int(json, "x", 0),
+                                   json_int(json, "y", 0), json_int(json, "whole", -1));
+            uint32_t *pixels = w > 0 && h > 0 && w <= 4096 && h <= 4096 ? malloc((size_t)w * h * 4) : NULL;
+            uint8_t *rgba = pixels ? malloc((size_t)w * h * 4) : NULL;
+            if (rgba && (drawn = shantae_map_draw(s_ctx, pixels, w, h))) {
+                for (int i = 0; i < w * h; ++i) {
+                    rgba[i * 4] = (uint8_t)(pixels[i] >> 16);
+                    rgba[i * 4 + 1] = (uint8_t)(pixels[i] >> 8);
+                    rgba[i * 4 + 2] = (uint8_t)pixels[i];
+                    rgba[i * 4 + 3] = (uint8_t)(pixels[i] >> 24);
+                }
+                stbi_write_png(path, w, h, 4, rgba, w * 4);
+            }
+            free(rgba);
+            free(pixels);
+        }
+        const char *d = json ? strstr(json, "\"describe\"") : NULL;
+        if (d && (d = strchr(d + 10, '"'))) {
+            char out[512];
+            size_t n = 0;
+            for (++d; *d && *d != '"' && n + 1 < sizeof(out); ++d) out[n++] = *d;
+            out[n] = 0;
+            shantae_map_describe(s_ctx, out);
+        }
+        int areas, cells, explored, markers;
+        shantae_map_counts(s_ctx, &areas, &cells, &explored, &markers);
+        gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"drawn\":%d,\"open\":%d,\"areas\":%d,\"cells\":%d,"
+                                 "\"explored\":%d,\"markers\":%d}",
+                                 id, drawn, shantae_map_is_open(), areas, cells, explored, markers);
+        return 1;
+    }
+    if (!strcmp(cmd, "shantae_transform")) {
+        /* A transformation button pressed (transform.c): {"form": 1-5, 6 the heal}. */
+        const char *f = json ? strstr(json, "\"form\"") : NULL;
+        const int form = f && (f = strchr(f, ':')) ? atoi(f + 1) : 0;
+        shantae_transform_request(form);
+        gb_debug_server_send_fmt("{\"id\":%d,\"ok\":true,\"form\":%d}", id, form);
         return 1;
     }
     if (!strcmp(cmd, "shantae_flight") && s_ctx && s_ctx->wram) {

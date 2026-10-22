@@ -121,6 +121,41 @@ bank = 0x1A
 addr = 0x70CB
 note = "AND $07 on C377: AND 0 while B is in use (dialogue.c), 10 gems every frame"
 
+# The map's explored cells kept with each save file (map.c): the ends of the
+# save routines in bank 4, cartridge RAM still on, each the LD A,$00 that
+# turns it off. 04:4CF1 saves CA70-CB3B to the file CD1D picks (A000, A400,
+# A800), 04:4D55 loads it (E 0 with its checksum good, 1 bad: an empty file,
+# which 0A:4474 then sets up as a new game), 04:4D2B erases it.
+[[imm_override]]
+bank = 4
+addr = 0x4D24
+note = "LD A,$00 at the save's end: the map's bytes to the file too (hook only)"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D90
+note = "LD A,$00 at the load's end, checksum good: the map's bytes from the file (hook only)"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D99
+note = "LD A,$00 at the load's end, checksum bad (an empty file): nothing explored (hook only)"
+
+[[imm_override]]
+bank = 4
+addr = 0x4D4E
+note = "LD A,$00 at the erase's end: the file's map bytes cleared (hook only)"
+
+# "The Zombie Caravan stays" (map.c): 12:425D rolls the caravan's next stop
+# (CAB9, 1-4) the first time a border it can stop at is crossed after a night
+# begins, once the story counter CA9D is 6. With the option, the compare is
+# made to fail and CAB9 is set to the first stop, between the Ghost and Archer
+# Forests.
+[[imm_override]]
+bank = 0x12
+addr = 0x4260
+note = "CP $06 on CA9D before the Zombie Caravan's roll: no roll while it stays"
+
 # The object table grown past 32 slots for the expanded view (object_slots.c):
 # the loops that count slots take the table's size, and the unrolled movement
 # pass stops before slot 31 so the slots past it move first. The object

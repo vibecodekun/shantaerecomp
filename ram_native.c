@@ -36,11 +36,17 @@ static int jump_slot(GBContext* ctx, uint16_t addr) {
 }
 
 int shantae_player_move_return(GBContext* ctx);   /* extras.c */
+int shantae_button_routine_return(GBContext* ctx);  /* extras.c */
 
 int game_dispatch_override(GBContext* ctx, uint16_t addr) {
     /* Where the early player move ("Reduce input lag") returns. */
     if (addr == 0x1386) {
         shantae_player_move_return(ctx);
+        return 0;
+    }
+    /* Where a button's routine call ("Transformation buttons") returns. */
+    if (addr == 0x130D) {
+        shantae_button_routine_return(ctx);
         return 0;
     }
     /* "After transforming": the blink as a transformation's silhouette ends,

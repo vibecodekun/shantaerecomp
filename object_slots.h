@@ -28,6 +28,11 @@ int shantae_slot_count(const struct GBContext *ctx);
 /* Backing byte of a bank-3 address in the table (its slots at D000 and
  * A000), read or written without the game noticing; NULL outside it. */
 uint8_t *shantae_slot_memory(struct GBContext *ctx, unsigned addr);
+/* The map's own bytes (map.c), SHANTAE_MAP_BYTES of them in the WRAM
+ * extension, which save states, state files and rollback carry; NULL before
+ * shantae_slots_init. */
+#define SHANTAE_MAP_BYTES 0x600
+uint8_t *shantae_map_memory(struct GBContext *ctx);
 /* The slot starting at `addr`, or -1. */
 int shantae_slot_index(const struct GBContext *ctx, unsigned addr);
 /* How far into its slot `addr` is, or -1 outside the table. */

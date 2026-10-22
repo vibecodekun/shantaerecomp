@@ -63,8 +63,12 @@
 #include "dance.h"
 #include "forms.h"
 #include "dialogue.h"
+#include "transform.h"
+#include "hud.h"
+#include "map.h"
 #include "gb_custom_view.h"
 
+#include <SDL.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -72,6 +76,11 @@
 #define SPRITE_DMA_PC 0x0A50          /* LD A,$07 before CALL $FF80, the OAM DMA */
 #define SPRITE_HDMA_PC 0x0A7D         /* LD A,$CF: HBlank DMA of the sprite graphics */
 #define SCROLL_BUILT_PC 0x730E        /* AND $F8 after both camera routines' build (bank 3) */
+#define FILE_SAVED_PC 0x4D24          /* bank 4, LD A,$00 at the save's end */
+#define FILE_LOADED_PC 0x4D90         /* the load's end, its checksum good */
+#define FILE_EMPTY_PC 0x4D99          /* the load's end, its checksum bad (an empty file) */
+#define FILE_ERASED_PC 0x4D4E         /* the erase's end */
+#define CARAVAN_ROLL_PC 0x4260        /* bank $12, CP $06 on CA9D: the Zombie Caravan's nightly roll */
 #define MOVES_PROLOGUE_PC 0x0C4B      /* LD A,$03 in 00:0C45, the movement routines */
 #define SCRIPTS_PROLOGUE_PC 0x130B    /* LD A,$03 in 00:1305, the object scripts */
 #define SCRIPTS_NEXT_SLOT_PC 0x1384   /* ADD A,$7E: on to the next object slot */
@@ -108,6 +117,17 @@ static int s_easy_dance = 1;
 static int s_quick_steps = 1;
 static int s_transform_invincible = 1;
 static int s_text_speed = SHANTAE_TEXT_INSTANT;
+static int s_transform_buttons = 1;
+static int s_hud_mode = SHANTAE_HUD_TOP_LEFT;
+static int s_hud_columns = 3;
+static int s_hud_size = SHANTAE_HUD_AUTO;
+static int s_map_on = 1;
+static int s_map_whole = 0;
+static int s_map_enemies = 0;
+static int s_map_size = SHANTAE_HUD_PICTURE;
+static int s_clock_mode = SHANTAE_HUD_TOP_RIGHT;
+static int s_clock_size = SHANTAE_HUD_PICTURE;
+static int s_caravan_stays = 0;
 
 static int clamp_int(int value, int lo, int hi) {
     return value < lo ? lo : value > hi ? hi : value;
@@ -178,6 +198,28 @@ static void load_settings(void) {
             s_text_speed = clamp_int(value, 0, SHANTAE_TEXT_INSTANT);
         } else if (sscanf(line, "instant_text=%d", &value) == 1 && !value) {
             s_text_speed = 0;   /* earlier releases: Instant text off, the original text */
+        } else if (sscanf(line, "transform_buttons=%d", &value) == 1) {
+            s_transform_buttons = value != 0;
+        } else if (sscanf(line, "hud=%d", &value) == 1) {
+            s_hud_mode = clamp_int(value, SHANTAE_HUD_OFF, SHANTAE_HUD_BOTTOM_RIGHT);
+        } else if (sscanf(line, "hud_columns=%d", &value) == 1) {
+            s_hud_columns = clamp_int(value, 1, SHANTAE_HUD_ROW);
+        } else if (sscanf(line, "hud_size=%d", &value) == 1) {
+            s_hud_size = clamp_int(value, SHANTAE_HUD_AUTO, SHANTAE_HUD_PICTURE);
+        } else if (sscanf(line, "map=%d", &value) == 1) {
+            s_map_on = value != 0;
+        } else if (sscanf(line, "map_whole=%d", &value) == 1) {
+            s_map_whole = value != 0;
+        } else if (sscanf(line, "map_enemies=%d", &value) == 1) {
+            s_map_enemies = value != 0;
+        } else if (sscanf(line, "map_size=%d", &value) == 1) {
+            s_map_size = clamp_int(value, SHANTAE_HUD_AUTO, SHANTAE_HUD_PICTURE);
+        } else if (sscanf(line, "clock=%d", &value) == 1) {
+            s_clock_mode = clamp_int(value, SHANTAE_HUD_OFF, SHANTAE_HUD_BOTTOM_RIGHT);
+        } else if (sscanf(line, "clock_size=%d", &value) == 1) {
+            s_clock_size = clamp_int(value, SHANTAE_HUD_AUTO, SHANTAE_HUD_PICTURE);
+        } else if (sscanf(line, "caravan_stays=%d", &value) == 1) {
+            s_caravan_stays = value != 0;
         }
     }
     fclose(f);
@@ -201,6 +243,11 @@ static void save_settings(void) {
     fprintf(f, "easy_dance=%d\nquick_steps=%d\ntransform_invincible=%d\n", s_easy_dance, s_quick_steps,
             s_transform_invincible);
     fprintf(f, "text_speed=%d\n", s_text_speed);
+    fprintf(f, "transform_buttons=%d\nhud=%d\nhud_columns=%d\nhud_size=%d\n", s_transform_buttons, s_hud_mode,
+            s_hud_columns, s_hud_size);
+    fprintf(f, "map=%d\nmap_whole=%d\nmap_enemies=%d\nmap_size=%d\n", s_map_on, s_map_whole, s_map_enemies,
+            s_map_size);
+    fprintf(f, "clock=%d\nclock_size=%d\ncaravan_stays=%d\n", s_clock_mode, s_clock_size, s_caravan_stays);
     fclose(f);
 }
 
@@ -239,6 +286,48 @@ void shantae_set_quick_steps(int on) {
 int shantae_transform_invincible(void) { load_settings(); return s_transform_invincible; }
 void shantae_set_transform_invincible(int on) {
     load_settings(); s_transform_invincible = on != 0; save_settings();
+}
+
+int shantae_map_on(void) { load_settings(); return s_map_on; }
+void shantae_set_map_on(int on) { load_settings(); s_map_on = on != 0; save_settings(); }
+int shantae_map_whole(void) { load_settings(); return s_map_whole; }
+void shantae_set_map_whole(int on) { load_settings(); s_map_whole = on != 0; save_settings(); }
+int shantae_map_enemies(void) { load_settings(); return s_map_enemies; }
+void shantae_set_map_enemies(int on) { load_settings(); s_map_enemies = on != 0; save_settings(); }
+int shantae_map_size(void) { load_settings(); return s_map_size; }
+void shantae_set_map_size(int size) {
+    load_settings(); s_map_size = clamp_int(size, SHANTAE_HUD_AUTO, SHANTAE_HUD_PICTURE); save_settings();
+}
+int shantae_caravan_stays(void) { load_settings(); return s_caravan_stays; }
+void shantae_set_caravan_stays(int on) { load_settings(); s_caravan_stays = on != 0; save_settings(); }
+
+int shantae_clock_mode(void) { load_settings(); return s_clock_mode; }
+void shantae_set_clock_mode(int mode) {
+    load_settings(); s_clock_mode = clamp_int(mode, SHANTAE_HUD_OFF, SHANTAE_HUD_BOTTOM_RIGHT); save_settings();
+}
+int shantae_clock_size(void) { load_settings(); return s_clock_size; }
+void shantae_set_clock_size(int size) {
+    load_settings(); s_clock_size = clamp_int(size, SHANTAE_HUD_AUTO, SHANTAE_HUD_PICTURE); save_settings();
+}
+
+int shantae_transform_buttons(void) { load_settings(); return s_transform_buttons; }
+void shantae_set_transform_buttons(int on) {
+    load_settings(); s_transform_buttons = on != 0; save_settings();
+}
+
+int shantae_hud_mode(void) { load_settings(); return s_hud_mode; }
+void shantae_set_hud_mode(int mode) {
+    load_settings(); s_hud_mode = clamp_int(mode, SHANTAE_HUD_OFF, SHANTAE_HUD_BOTTOM_RIGHT); save_settings();
+}
+
+int shantae_hud_size(void) { load_settings(); return s_hud_size; }
+void shantae_set_hud_size(int size) {
+    load_settings(); s_hud_size = clamp_int(size, SHANTAE_HUD_AUTO, SHANTAE_HUD_PICTURE); save_settings();
+}
+
+int shantae_hud_columns(void) { load_settings(); return s_hud_columns; }
+void shantae_set_hud_columns(int columns) {
+    load_settings(); s_hud_columns = clamp_int(columns, 1, SHANTAE_HUD_ROW); save_settings();
 }
 
 int shantae_text_speed(void) { load_settings(); return s_text_speed; }
@@ -547,6 +636,53 @@ int shantae_player_move_return(GBContext *ctx) {
     return 1;
 }
 
+/* "Transformation buttons": a button used in this tick's script pass
+ * (transform.c) calls the ROM routine the dance would: a switched form gets
+ * its sprite palettes as a transformation gives them, from 06:4015 (the
+ * routine the area's table, CB73-CB75, has for the form, which room loads and
+ * 0E:4EDE call), and the heal heals with the heal dance's 0E:4421. The hook at
+ * 00:130B stops at the next instruction, 00:130D, and the step hook calls the
+ * routine there with every register, the ROM bank and SVBK saved on the
+ * game's stack under BUTTON_MARKER, as run_player_move does; it returns to
+ * 00:130D, where this restores them (from ram_native.c's dispatch override, as
+ * compiled code runs on through the return). Returns 1 when it restored. */
+#define BUTTON_ROUTINE_PC 0x130D
+#define BUTTON_MARKER 0x5AA7
+static uint32_t s_button_routine;   /* bank << 16 | address; 0 none */
+
+int shantae_button_routine_return(GBContext *ctx) {
+    if (ctx->pc != BUTTON_ROUTINE_PC || gb_read16(ctx, ctx->sp) != BUTTON_MARKER) return 0;
+    gb_pop16(ctx);
+    const uint16_t banks = gb_pop16(ctx);
+    ctx->hl = gb_pop16(ctx);
+    ctx->de = gb_pop16(ctx);
+    ctx->af = gb_pop16(ctx) & 0xFFF0;
+    gb_unpack_flags(ctx);
+    ctx->bc = gb_pop16(ctx);
+    ctx->hram[0x11] = (uint8_t)(banks >> 8);
+    gb_write8(ctx, 0x2000, (uint8_t)(banks >> 8));
+    gb_write8(ctx, 0xFF70, (uint8_t)banks);
+    return 1;
+}
+
+static void call_button_routine(GBContext *ctx) {
+    if (ctx->pc != BUTTON_ROUTINE_PC || !s_button_routine || shantae_button_routine_return(ctx)) return;
+    const uint8_t bank = (uint8_t)(s_button_routine >> 16);
+    const uint16_t routine = (uint16_t)s_button_routine;
+    s_button_routine = 0;
+    gb_pack_flags(ctx);
+    gb_push16(ctx, ctx->bc);
+    gb_push16(ctx, ctx->af & 0xFFF0);
+    gb_push16(ctx, ctx->de);
+    gb_push16(ctx, ctx->hl);
+    gb_push16(ctx, (uint16_t)(ctx->hram[0x11] << 8 | ctx->io[0x70]));
+    gb_push16(ctx, BUTTON_MARKER);
+    gb_push16(ctx, BUTTON_ROUTINE_PC);
+    ctx->hram[0x11] = bank;
+    gb_write8(ctx, 0x2000, bank);
+    ctx->pc = routine;
+}
+
 /* At the top of a movement routine, before it has pushed anything: whether
  * run_player_move started it (its return address and MOVE_MARKER are on top
  * of the stack), not 00:0C45. */
@@ -588,6 +724,7 @@ static void run_player_move(GBContext *ctx) {
 }
 
 static void step_hook(GBContext *ctx) {
+    call_button_routine(ctx);
     run_player_move(ctx);
 }
 
@@ -622,6 +759,8 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
     if (bank == 0x1A && pc == SHOP_GEMS_PC && orig == 0x07 && shantae_text_hurry(ctx)) return 0x00;
     /* "Dancing": the dance routine and its script's native calls. */
     if (bank == 0x0E && shantae_dance_imm(ctx, pc, orig, &value)) return value;
+    /* "The Zombie Caravan stays": its nightly roll (map.c). */
+    if (bank == 0x12 && pc == CARAVAN_ROLL_PC && orig == 0x06) return shantae_map_caravan_roll(ctx, orig);
     /* "Text speed": each object script op as it dispatches. */
     if (bank == 0 && (pc == SCRIPT_OP_PC || pc == SCRIPT_JUMP_OP_PC) && orig == 0x06) {
         shantae_script_op(ctx);
@@ -630,6 +769,7 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
             dance_floor_round_over(ctx);
     }
     if (bank == 0 && orig == 0x03 && (pc == MOVES_PROLOGUE_PC || pc == SCRIPTS_PROLOGUE_PC)) shantae_moves_tick(ctx);
+    if (bank == 0 && orig == 0x03 && pc == MOVES_PROLOGUE_PC) shantae_transform_movement_pass(ctx);
     /* Match the original byte too: the generator also emits HALT-bug copies of
      * these instructions, which read the opcode as the operand. */
     if (bank == 0 && pc == SPRITE_DMA_PC && orig == 0x07) {
@@ -638,18 +778,76 @@ static uint8_t shantae_imm_override(GBContext *ctx, uint8_t bank, uint16_t pc, u
         return 0x4F;   /* general DMA: the graphics are in VRAM before the picture */
     } else if (bank == 0 && pc == SCRIPTS_PROLOGUE_PC && orig == 0x03) {
         shantae_text_pass(ctx);
+        if ((s_button_routine = shantae_transform_pass(ctx)) != 0) ctx->stopped = 1;
         note_player_move(ctx);
         shantae_forms_script_pass(ctx);
     } else if (bank == 0 && pc == SCRIPTS_NEXT_SLOT_PC && orig == 0x7E) {
         player_script_done(ctx);
     } else if (bank == 3 && pc == SCROLL_BUILT_PC && orig == 0xF8) {
         note_scroll_built(ctx);
+    } else if (bank == 4 && orig == 0x00) {
+        /* The save routines' ends, cartridge RAM still on (map.c), each the
+         * LD A,$00 before it is turned off: a file saved (04:4CF1), loaded
+         * or found empty (04:4D55), erased (04:4D2B). */
+        if (pc == FILE_SAVED_PC) shantae_map_file_saved(ctx);
+        else if (pc == FILE_LOADED_PC) shantae_map_file_loaded(ctx, 1);
+        else if (pc == FILE_EMPTY_PC) shantae_map_file_loaded(ctx, 0);
+        else if (pc == FILE_ERASED_PC) shantae_map_file_erased(ctx);
     }
     return shantae_slots_imm(ctx, bank, pc, orig);
 }
 
 const char *game_get_name(void) {
     return "Shantae";
+}
+
+/* The game's own buttons (game_extras.h), bound in Esc -> Controls: one for
+ * each transformation and the heal ("Transformation buttons", transform.c),
+ * and the map (map.c). The keyboard has them on 1-6 and M; a controller has
+ * the four animals on the two face buttons and the two shoulders the Game
+ * Boy's A and B leave free, and the map on the right stick's click (the left
+ * one still opens the menu). */
+static const GBGameAction s_actions[] = {
+    {"monkey", "Monkey", {SDL_SCANCODE_1, 0}, SDL_CONTROLLER_BUTTON_X},
+    {"elephant", "Elephant", {SDL_SCANCODE_2, 0}, SDL_CONTROLLER_BUTTON_Y},
+    {"spider", "Spider", {SDL_SCANCODE_3, 0}, SDL_CONTROLLER_BUTTON_LEFTSHOULDER},
+    {"harpy", "Harpy", {SDL_SCANCODE_4, 0}, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER},
+    {"tinkerbat", "Tinkerbat", {SDL_SCANCODE_5, 0}, -1},
+    {"heal", "Heal", {SDL_SCANCODE_6, 0}, -1},
+    {"map", "Map", {SDL_SCANCODE_M, 0}, SDL_CONTROLLER_BUTTON_RIGHTSTICK},
+};
+static const int s_action_form[] = {
+    SHANTAE_FORM_MONKEY, SHANTAE_FORM_ELEPHANT, SHANTAE_FORM_SPIDER, SHANTAE_FORM_HARPY, SHANTAE_FORM_TINKERBAT,
+    SHANTAE_HEAL, SHANTAE_FORM_NONE,
+};
+#define ACTION_COUNT (int)(sizeof(s_actions) / sizeof(s_actions[0]))
+#define MAP_ACTION (ACTION_COUNT - 1)
+
+const GBGameAction *game_get_actions(int *count) {
+    *count = ACTION_COUNT;
+    return s_actions;
+}
+
+int shantae_action_form(int action) {
+    return action >= 0 && action < ACTION_COUNT ? s_action_form[action] : SHANTAE_FORM_NONE;
+}
+
+int shantae_map_action(void) { return MAP_ACTION; }
+
+/* Once a frame, before it runs: the buttons pressed since the last, and what
+ * the camera shows explored. While the map is open the game is held and
+ * this does not run: the window takes the map's buttons (extras_ui.cpp). */
+void game_on_frame(struct GBContext *ctx) {
+    static uint8_t held[ACTION_COUNT];
+    for (int i = 0; i < ACTION_COUNT; ++i) {
+        const int now = gb_platform_game_action_held(i);
+        if (now && !held[i]) {
+            if (i == MAP_ACTION) shantae_map_toggle(ctx);
+            else shantae_transform_request(s_action_form[i]);
+        }
+        held[i] = (uint8_t)now;
+    }
+    shantae_map_frame(ctx);
 }
 
 int game_default_hardware_mode(void) {
@@ -671,7 +869,9 @@ static void save_game_state(const GBContext *ctx, void *out) {
     uint8_t *p = out;
     memcpy(p, &s->sprite, sizeof(s->sprite));
     memcpy(p + sizeof(s->sprite), &s->move, sizeof(s->move));
-    shantae_view_state_save(p + sizeof(s->sprite) + sizeof(s->move));
+    p += sizeof(s->sprite) + sizeof(s->move);
+    shantae_transform_state_save(p);
+    shantae_view_state_save(p + shantae_transform_state_size());
 }
 
 static void load_game_state(GBContext *ctx, const void *in) {
@@ -679,7 +879,9 @@ static void load_game_state(GBContext *ctx, const void *in) {
     const uint8_t *p = in;
     memcpy(&s->sprite, p, sizeof(s->sprite));
     memcpy(&s->move, p + sizeof(s->sprite), sizeof(s->move));
-    shantae_view_state_load(p + sizeof(s->sprite) + sizeof(s->move));
+    p += sizeof(s->sprite) + sizeof(s->move);
+    shantae_transform_state_load(p);
+    shantae_view_state_load(p + shantae_transform_state_size());
     shantae_slots_state_loaded(ctx);
 }
 
@@ -700,6 +902,8 @@ static void state_file_loaded(GBContext *ctx) {
     s->sprite.built_dy = (uint16_t)ram16(ctx->wram + 0x9D4);
     shantae_slots_state_loaded(ctx);
     shantae_view_state_file_loaded(ctx);
+    shantae_transform_state_file_loaded();
+    shantae_map_state_file_loaded(ctx);
 }
 
 void game_on_init(struct GBContext *ctx) {
@@ -712,10 +916,13 @@ void game_on_init(struct GBContext *ctx) {
      * waits that long before it takes a frame for a screen load. */
     if (shantae_expanded_view()) gb_frame_hold_limit = 8u * 70224u;
     gb_step_hook = step_hook;
-    gb_game_state.size = sizeof(SpriteLag) + sizeof(PlayerMove) + shantae_view_state_size();
+    gb_game_state.size = sizeof(SpriteLag) + sizeof(PlayerMove) + shantae_transform_state_size() +
+                         shantae_view_state_size();
     gb_game_state.save = save_game_state;
     gb_game_state.load = load_game_state;
     gb_game_state.file_loaded = state_file_loaded;
     shantae_view_init(ctx);
     shantae_slots_init(ctx, shantae_expanded_view());
+    shantae_transform_init(ctx);
+    shantae_map_init(ctx);
 }

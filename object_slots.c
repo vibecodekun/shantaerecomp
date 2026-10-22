@@ -147,6 +147,9 @@
 #define NODE_EXT_BASE 0xE000
 #define NODE_MAPPED (EXTRA_NODES * NODE_SIZE)
 #define NODE_OFFSET (PRIVATE_OFFSET + sizeof(SlotState))   /* in wram_ext */
+/* The map's bytes (map.c) after the nodes: a state file from before them
+ * loads with them zeroed. */
+#define MAP_OFFSET (NODE_OFFSET + NODE_MAPPED)
 
 typedef struct {
     uint32_t magic;
@@ -202,6 +205,11 @@ int shantae_slot_index(const GBContext *ctx, unsigned addr) {
     if (shantae_slot_field(ctx, addr) != 0) return -1;
     return addr >= SHANTAE_SLOT_BASE ? (int)(addr - SHANTAE_SLOT_BASE) / SHANTAE_SLOT_SIZE
                                      : SHANTAE_ECHO_SLOTS + (int)(addr - SHANTAE_CART_BASE) / SHANTAE_SLOT_SIZE;
+}
+
+uint8_t *shantae_map_memory(GBContext *ctx) {
+    if (!ctx->wram_ext || ctx->wram_ext_size < MAP_OFFSET + SHANTAE_MAP_BYTES) return NULL;
+    return ctx->wram_ext + MAP_OFFSET;
 }
 
 uint8_t *shantae_slot_memory(GBContext *ctx, unsigned addr) {
@@ -280,7 +288,7 @@ static void reset_passes(SlotState *s, int slots) {
 
 void shantae_slots_init(GBContext *ctx, int extended) {
     s_extended = extended != 0;
-    if (!gb_context_set_wram_extension(ctx, 3, 0, NODE_OFFSET + NODE_MAPPED)) return;
+    if (!gb_context_set_wram_extension(ctx, 3, 0, MAP_OFFSET + SHANTAE_MAP_BYTES)) return;
     reset_passes(slot_state(ctx), SHANTAE_ORIGINAL_SLOTS);
     sync(ctx);
 }
@@ -319,7 +327,7 @@ static void upgrade(GBContext *ctx, SlotState *s) {
     memcpy(&v1, ctx->wram_ext + 0x1E00, sizeof(v1));
     const int from = v1.magic == PRIVATE_MAGIC_V1 && v1.slots == SHANTAE_ECHO_SLOTS ? SHANTAE_ECHO_SLOTS
                                                                                     : SHANTAE_ORIGINAL_SLOTS;
-    memset(ctx->wram_ext + CART_OFFSET, 0, ctx->wram_ext_size - CART_OFFSET);
+    memset(ctx->wram_ext + CART_OFFSET, 0, MAP_OFFSET - CART_OFFSET);
     if (from == SHANTAE_ORIGINAL_SLOTS) memset(ctx->wram_ext, 0, ECHO_MAPPED);
     reset_passes(s, from);
     if (v1.magic == PRIVATE_MAGIC_V1 && v1.backup_slots) {

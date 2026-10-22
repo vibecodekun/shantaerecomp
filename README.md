@@ -5,7 +5,8 @@ Boots as a Game Boy Advance by default, so the GBA Enhanced extras are on (title
 Town Tinkerbat secret), while the palette loader is kept on the original GBC colors. On top of
 that: an expanded world view (an aspect ratio of your choice, or Adaptive to fill the whole
 screen), no slowdown, reduced input lag, smoother movement (running, whipping and crawling
-without losing momentum), rewind, and RetroArch shader presets through librashader.
+without losing momentum), a button for each transformation with a HUD of the Dance Menu's icons,
+a map screen, a day and night clock, rewind, and RetroArch shader presets through librashader.
 
 ## Download
 
@@ -38,6 +39,9 @@ build was made with applied is verified too.
 | `moveset.c` | "Smoother movement": the whip slide and cancel, the run and air speed from B, the whip and the dance as she lands, and the faster crawl, as hooks in Shantae's movement routines ([docs/moveset.md](docs/moveset.md)) |
 | `forms.c` | "Smoother movement" for the transformations: the monkey's and tinkerbat's attack slide, run and air speed, faster climbs, the harpy's speed and flaps through her talons, the charges, the elephant's turn, landing and stomp, the spider's run and shot, webs taken with A, the tinkerbat's box ([docs/moveset.md](docs/moveset.md#transformations)) |
 | `dance.c` | "Easier dancing": the dance's steps entered like a code, each with its pose, and the blink once a transformation's silhouette ends and after turning back ([docs/dance.md](docs/dance.md)) |
+| `transform.c` | "Transformation buttons": a button for each form and the heal, switching her in the tick she is in control, where the form fits |
+| `hud.c` | The buttons' HUD (the Dance Menu's icons, decoded from the ROM) and the day and night clock (the status bar's numerals) |
+| `map.c` | The map screen: the world laid out as on vgmaps' World Map, each area's terrain from its collision, markers from the spawn records, explored cells kept with each save file, and the Zombie Caravan at its stop |
 | `launcher_options.c` | Built-in GBA, expanded-view and gameplay features on the launcher's Mods page |
 | `extras_ui.cpp` | In-game Shantae settings, including expanded-view size and the movement options |
 | `game_build.cmake` | Adds game hooks, UI, and regression targets to the generated project |
@@ -62,6 +66,10 @@ build was made with applied is verified too.
 | `tools/check_moveset.py` | Shantae's moves with "Smoother movement" beside the original, frame for frame: the whip slide and cancel, air speed, a whip that lands or slides off a ledge, B and Select as she lands from a standing jump, the crawl, the crouch whip under a low ceiling; and the feature off against the previous release, from a saved state |
 | `tools/check_forms.py` | The transformations with "Smoother movement" beside the original: the monkey's and tinkerbat's slide (from standing and walking), cancel and air speed, the harpy's talons in her run and while flapping, the tinkerbat's box in the ice tower's hidden passage and the pipe maze, the pillar, the charges, the elephant's turn, landing and stomp, climbing with B, the spider's run and shot, webs, and the spider's shot in the expanded view; Transformations off against the previous release, from four saved states |
 | `tools/check_dance.py` | "Easier dancing": every dance of the ROM's table on its last step, skipped and restarted steps, the original rhythm, a slider against the new monkey (the blink once its silhouette ends) and against Shantae turned back, with and without the blink, and every transformation's blink; the feature off against the previous release, from a saved state |
+| `tools/check_transform.py` | The transformation buttons: every form by its button as by its dance, walking and jumping, mid-jump, a one-tile corridor, shops and scenes, forms not learned, the heal, beside quick steps, and the HUD's layouts, from saved states |
+| `tools/check_hud.py` | The HUD and the clock in a hidden window with no preset, an LCD dot matrix, crt-geom and a koko-aio bezel; no HUD and no switching on a town's street |
+| `tools/map_extract.py` | The map's research side: every room load, map and spawn record in the ROM |
+| `tools/trace_writes.c` | Which instructions write a memory range, from a saved state (research only) |
 | `tools/check_rom_gate.py` | Only the ROM the build was recompiled from starts: the launcher's "ROM verified" line and PLAY, and the runtime's own check, for the ROM, bad dumps made from it, and optionally another game |
 | `tools/check_patches.py` | Every patch in `patches/` on the stock ROM: every instruction position it changes against the reference interpreter (`whole_rom_check patches`), recognized with all of them compiled, the native code against the interpreter on the patched ROM from a cold boot and from the first town's shop, the debug-grid route, scene 3C's text and the shop pictured; with the dance floor fix, the dance floor at night as a player gets there and a round's end against the interpreter; the patched ROM file accepted; a code patch the build was not made with stops with its message, a data patch runs, a size-changing one is refused; the launcher's line for each ([docs/rom-patches.md](docs/rom-patches.md#checks)) |
 | `tools/check_dance_floor.py` | The dance floor on the stock game: from a cold boot, the Zombie Caravan's gates, the warp dance, Scuttle Town at night, the Dance Parlor, a round to its end; it must return to the owner, and the round's end must match the interpreter ([The dance floor](#the-dance-floor)) |
@@ -95,8 +103,8 @@ Already cloned without `--recursive`? Run `git submodule update --init`.
 
 The generated project builds for size (MinSizeRel, the recompiled ROM code at
 `-O1`); `game_build.cmake` builds the runtime and this game's modules
-(`expanded_view.c`, `object_slots.c`, `moveset.c`, `forms.c`, `dance.c`, `extras.c`,
-`ram_native.c`) at `-O2`,
+(`expanded_view.c`, `object_slots.c`, `moveset.c`, `forms.c`, `dance.c`, `dialogue.c`,
+`transform.c`, `extras.c`, `ram_native.c`) at `-O2`,
 since the PPU, APU, timers and the expanded-view compositor run every frame.
 The ROM code keeps its own level, so this does not recompile it.
 
@@ -258,6 +266,38 @@ Run `generated/build/shantae.exe`. In the launcher, **Mods** holds Shantae's opt
   danced afterwards and left the screen white until Shantae danced. Her wait now keeps
   that signal, so she dances first, then the flash and the menu, at any speed. At 0
   everything plays as the original.
+- **Transformation buttons** (on by default): a button for each form whose dance she has
+  learned (monkey, elephant, spider, harpy, tinkerbat) turns her into it at once, standing,
+  walking or in the air, and the same button turns her back; a sixth heals as the heal
+  dance does (10 gems a heart). A form switches only where it fits and while she is in your
+  hands, never in a shop's menu or a scene, nor on a town's street, where the original
+  cannot dance either. Bind them in the in-game settings' Controls (keys 1-6; X, Y, LB and
+  RB on a controller). Select still dances. The **Buttons HUD** shows the Dance Menu's own
+  icons in a corner of the picture (top left by default; never in the black beside it):
+  the form she is framed in yellow, dances not learned and a heal that would heal nothing
+  dark. Its **layout** (one to three columns, or a row) and **size** are options; it is not
+  shown on a town's street.
+- **Map** (on by default): **M** (the right stick's click on a controller) opens a map with
+  the game paused: the world as cells laid out as on vgmaps' World Map, and the area she
+  is in drawn as its terrain from the ROM; A zooms, the pad moves it, Select shows the world
+  from a labyrinth, B closes it. Heart holders, fireflies (at night), warp squids,
+  talismans, save statues, caves and labyrinth doors are marked, dimmed once taken. It
+  fills in as she explores, kept with each save file and save state (or the whole map from
+  the start), and can mark enemies. The Zombie Caravan is drawn at its stop at night.
+- **Day and night clock** (top right by default): the sun or the moon and the minutes and
+  seconds to the next nightfall or daybreak, in the status bar's own numerals and colors,
+  dimmed while time stands still.
+- **Zombie Caravan stays** (off by default): later in the story the caravan moves on each
+  night to one of four borders (Mens Desert and Naga Wasteland, Rain Storm and Snail
+  Wasteland, the Ghost and Archer Forests, Eagle Wasteland and Mud Bog), picked the first
+  time she crosses one of them that night. On, it stops every night between the Ghost and
+  Archer Forests, where it first stops.
+
+  The HUD, the clock and the map are drawn inside the picture whatever its shape, and a
+  shader preset shades each on its own. At **the picture's pixels** (the clock's and the
+  map's default size) they are on the picture's pixel grid, so an LCD's dots or a CRT's
+  scanlines fall on them as on the game; with a preset that draws the whole window (a
+  bezel) they are drawn into the picture.
 - **Expanded view** (off by default): a larger world view with the original pixel
   scale and the status bar at the bottom, 256×240 (NES size) unless changed. Enable
   it on the Mods page, then launch. Its options set the size: **Adaptive** fills the

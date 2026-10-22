@@ -3,7 +3,9 @@
 #include "imgui.h"
 
 #include <SDL.h>
+#include <cmath>
 #include <cstdio>
+#include <vector>
 
 #include "game_extras.h"
 #include "gb_custom_view.h"
@@ -13,6 +15,10 @@ extern "C" {
 #include "forms.h"
 #include "dance.h"
 #include "dialogue.h"
+#include "transform.h"
+#include "hud.h"
+#include "map.h"
+int shantae_map_action(void);
 }
 
 extern "C" int shantae_gba_enhanced(void);
@@ -34,6 +40,22 @@ static void screen_size(int *width, int *height) {
         *width = mode.w;
         *height = mode.h;
     }
+}
+
+// A size for the HUD or the clock: Auto, 1-8x, or the picture's pixels.
+static void size_combo(const char *name, int size, void (*set)(int)) {
+    char label[48];
+    if (size == SHANTAE_HUD_AUTO) snprintf(label, sizeof(label), "Auto: half the original's pixels");
+    else if (size == SHANTAE_HUD_PICTURE) snprintf(label, sizeof(label), "The picture's pixels");
+    else snprintf(label, sizeof(label), "%dx", size);
+    if (!ImGui::BeginCombo(name, label)) return;
+    if (ImGui::Selectable("The picture's pixels", size == SHANTAE_HUD_PICTURE)) set(SHANTAE_HUD_PICTURE);
+    if (ImGui::Selectable("Auto: half the original's pixels", size == SHANTAE_HUD_AUTO)) set(SHANTAE_HUD_AUTO);
+    for (int n = 1; n <= SHANTAE_HUD_SIZE_MAX; ++n) {
+        snprintf(label, sizeof(label), "%dx", n);
+        if (ImGui::Selectable(label, size == n)) set(n);
+    }
+    ImGui::EndCombo();
 }
 
 void game_draw_overlay(struct GBContext *ctx) {
@@ -113,6 +135,74 @@ void game_draw_overlay(struct GBContext *ctx) {
     if (ImGui::Combo("After transforming", &safe, afters, 2)) shantae_set_transform_invincible(safe);
     ImGui::TextDisabled("Down starts a dance over. Changes apply at once.");
     if (!dance) ImGui::EndDisabled();
+
+    ImGui::Separator();
+    bool buttons = shantae_transform_buttons() != 0;
+    if (ImGui::Checkbox("Transformation buttons", &buttons)) {
+        shantae_set_transform_buttons(buttons ? 1 : 0);
+    }
+    ImGui::TextDisabled("A button for each form she has danced: she becomes it");
+    ImGui::TextDisabled("at once, and its button again turns her back. One more");
+    ImGui::TextDisabled("heals as the heal dance does. Bind them in Controls");
+    ImGui::TextDisabled("(keys 1-6; X, Y, LB and RB on a pad).");
+    if (!buttons) ImGui::BeginDisabled();
+    static const char *const huds[] = {"Off", "Top left", "Top right", "Bottom left", "Bottom right"};
+    int hud = shantae_hud_mode();
+    if (ImGui::Combo("Buttons HUD", &hud, huds, 5)) shantae_set_hud_mode(hud);
+    ImGui::TextDisabled("The Dance Menu's icons in a corner of the picture,");
+    ImGui::TextDisabled("whatever its shape; at the bottom, above the status");
+    ImGui::TextDisabled("bar or a dialogue box.");
+    if (hud == SHANTAE_HUD_OFF) ImGui::BeginDisabled();
+    static const char *const layouts[] = {"1 column", "2 columns", "3 columns", "One row"};
+    const int columns = shantae_hud_columns();
+    int layout = columns >= SHANTAE_HUD_ROW ? 3 : columns - 1;
+    if (ImGui::Combo("HUD layout", &layout, layouts, 4)) shantae_set_hud_columns(layout == 3 ? SHANTAE_HUD_ROW : layout + 1);
+    size_combo("HUD size", shantae_hud_size(), shantae_set_hud_size);
+    ImGui::TextDisabled("Screen pixels for each of its pixels. Auto is half the");
+    ImGui::TextDisabled("original picture's at this window's size (3x on a 1080p");
+    ImGui::TextDisabled("screen), the same whatever the view or zoom. The");
+    ImGui::TextDisabled("picture's pixels: the game's own size, on their grid, so");
+    ImGui::TextDisabled("a shader preset's dots or scanlines are the game's.");
+    if (hud == SHANTAE_HUD_OFF) ImGui::EndDisabled();
+    if (!buttons) ImGui::EndDisabled();
+
+    ImGui::Separator();
+    bool map = shantae_map_on() != 0;
+    if (ImGui::Checkbox("Map", &map)) shantae_set_map_on(map ? 1 : 0);
+    ImGui::TextDisabled("Its button (M; the right stick's click on a pad) opens");
+    ImGui::TextDisabled("the world as cells and the area she is in as its terrain.");
+    ImGui::TextDisabled("The pad moves it, A zooms, Select shows the world from a");
+    ImGui::TextDisabled("labyrinth, B closes it. The sun or moon is the time to");
+    ImGui::TextDisabled("the next nightfall or daybreak.");
+    if (!map) ImGui::BeginDisabled();
+    bool whole = shantae_map_whole() != 0;
+    if (ImGui::Checkbox("Whole map from the start", &whole)) shantae_set_map_whole(whole ? 1 : 0);
+    ImGui::TextDisabled("Off: it fills in as she explores, kept with each save file.");
+    bool enemies = shantae_map_enemies() != 0;
+    if (ImGui::Checkbox("Show enemies", &enemies)) shantae_set_map_enemies(enemies ? 1 : 0);
+    size_combo("Map size", shantae_map_size(), shantae_set_map_size);
+    ImGui::TextDisabled("The picture's pixels: the game's own, so a shader preset");
+    ImGui::TextDisabled("draws it as the game. Auto shows more at once.");
+    if (!map) ImGui::EndDisabled();
+
+    ImGui::Separator();
+    int clock = shantae_clock_mode();
+    if (ImGui::Combo("Day and night clock", &clock, huds, 5)) shantae_set_clock_mode(clock);
+    ImGui::TextDisabled("The sun or the moon and the time to the next change,");
+    ImGui::TextDisabled("in the status bar's numerals, in a corner of the picture");
+    ImGui::TextDisabled("(beside the buttons' HUD in its corner). Dimmed while");
+    ImGui::TextDisabled("time stands still, as in scenes.");
+    if (clock == SHANTAE_HUD_OFF) ImGui::BeginDisabled();
+    size_combo("Clock size", shantae_clock_size(), shantae_set_clock_size);
+    if (clock == SHANTAE_HUD_OFF) ImGui::EndDisabled();
+
+    ImGui::Separator();
+    bool caravan = shantae_caravan_stays() != 0;
+    if (ImGui::Checkbox("Zombie Caravan stays", &caravan)) shantae_set_caravan_stays(caravan ? 1 : 0);
+    ImGui::TextDisabled("Every night between the Ghost and Archer Forests, where");
+    ImGui::TextDisabled("it first stops. Off: later in the story it moves on each");
+    ImGui::TextDisabled("night, as in the original; the map shows where once she");
+    ImGui::TextDisabled("crosses a border it can stop at.");
 
     ImGui::Separator();
     int text_speed = shantae_text_speed();
@@ -260,4 +350,201 @@ void game_draw_overlay(struct GBContext *ctx) {
     ImGui::TextDisabled(running ? "Experimental. Size changes apply now; turning the view"
                                 : "Experimental. Takes effect on the next launch.");
     if (running) ImGui::TextDisabled("on or off takes effect on the next launch.");
+}
+
+// The transformation buttons' HUD (hud.c) is drawn inside the picture,
+// whatever its shape (the original's 10:9, the expanded view's), in the corner
+// chosen: never in the black beside it, which is the expanded view's to fill.
+// A bottom corner sits above the bottom UI as it is (shantae_view_bottom_rows:
+// the status bar, a dialogue box while one is up, a town's panel, at the size
+// the view gives them). In play the window is always on screen as one of them
+// (WY 128 the bar, 104 a box or panel), and a menu has none (the inventory
+// moves it to 144) or covers the picture with it: the HUD is drawn only while
+// a bottom UI shows, under half the picture. It is a little translucent. The
+// day and night clock (hud.c) is drawn the same way, in a corner of its own,
+// or beside the HUD in the HUD's: below it at the top, above it at the bottom.
+static const int HUD_ALPHA = 220;
+
+static bool corner_right(int corner) {
+    return corner == SHANTAE_HUD_TOP_RIGHT || corner == SHANTAE_HUD_BOTTOM_RIGHT;
+}
+static bool corner_low(int corner) {
+    return corner == SHANTAE_HUD_BOTTOM_LEFT || corner == SHANTAE_HUD_BOTTOM_RIGHT;
+}
+
+// The top left of a piece w x h in `corner` of a picture at px,py of pw x ph,
+// `margin` in from the corner and from the bottom UI's top, `bottom` above
+// the picture's foot.
+static void hud_place(int corner, float px, float py, float pw, float ph, float w, float h, float margin,
+                      float bottom, float *x, float *y) {
+    *x = corner_right(corner) ? px + pw - margin - w : px + margin;
+    *y = corner_low(corner) ? py + ph - bottom - margin - h : py + margin;
+}
+
+// Where the HUD (w x h) and the clock (cw x ch) go, either one 0 x 0 when it
+// is not drawn: each two of its pixels (`hud_scale`, `clock_scale`) in from
+// its corner, the clock as far again from the HUD when they share one.
+static void place_both(float px, float py, float pw, float ph, float bottom, float w, float h, float hud_scale,
+                       float cw, float ch, float clock_scale, float *x, float *y, float *cx, float *cy) {
+    const int corner = shantae_hud_mode(), clock_corner = shantae_clock_mode();
+    hud_place(corner, px, py, pw, ph, w, h, 2.0f * hud_scale, bottom, x, y);
+    hud_place(clock_corner, px, py, pw, ph, cw, ch, 2.0f * clock_scale, bottom, cx, cy);
+    if (clock_corner != corner || w <= 0 || h <= 0) return;
+    *cy = corner_low(corner) ? *y - 2.0f * clock_scale - ch : *y + h + 2.0f * clock_scale;
+}
+
+// Half the whole scale the original picture has in this window (3 screen
+// pixels a pixel on a 1080p screen): it follows the window, not the picture,
+// so the room zoom and the view's shape leave it as it is.
+static int auto_scale(const GBHudFrame *frame) {
+    const float original = frame->window_w / 160.0f < frame->window_h / 144.0f ? frame->window_w / 160.0f
+                                                                                : frame->window_h / 144.0f;
+    return original >= 4.0f ? (int)original / 2 : 1;
+}
+
+// Window pixels for each of a piece's pixels at the size chosen: Auto, 1-8,
+// or the picture's own (frame->scale).
+static float piece_scale(int size, const GBHudFrame *frame) {
+    if (size == SHANTAE_HUD_PICTURE) return frame->scale > 0.0f ? frame->scale : (float)auto_scale(frame);
+    return (float)(size != SHANTAE_HUD_AUTO ? size : auto_scale(frame));
+}
+
+// A piece at the picture's pixels starts on one of them, so its pixels are
+// the picture's, cell for cell: rounded away from the corner's edge it is
+// placed from (it is already on one, or beside the HUD, which it then does
+// not overlap).
+static void snap(const GBHudFrame *frame, int corner, float *x, float *y) {
+    const float s = frame->scale;
+    if (s <= 0.0f) return;
+    const float px = (*x - frame->x) / s, py = (*y - frame->y) / s;
+    *x = frame->x + s * (corner_right(corner) ? floorf(px + 1e-3f) : ceilf(px - 1e-3f));
+    *y = frame->y + s * (corner_low(corner) ? floorf(py + 1e-3f) : ceilf(py - 1e-3f));
+}
+
+// The map screen (map.c) while it is open: the whole picture, at the size
+// chosen (the picture's own pixels by default, on its grid), shaded on its own
+// as the HUD is (texture slot 1; the HUD is not drawn meanwhile). The game is
+// held, so its buttons are read here: the pad
+// pans, A zooms, Select shows the world from a labyrinth, and B, Start or the
+// map's own button close it.
+static void draw_map(struct GBContext *ctx, const GBHudFrame *frame) {
+    const float scale = piece_scale(shantae_map_size(), frame);
+    const int w = (int)(frame->w / scale + 0.01f), h = (int)(frame->h / scale + 0.01f);
+    if (w <= 0 || h <= 0) return;
+    static std::vector<uint32_t> pixels;
+    pixels.resize((size_t)w * h);
+    if (!shantae_map_draw(ctx, pixels.data(), w, h)) return;
+    const ImTextureID plain = (ImTextureID)gb_platform_hud_texture(1, pixels.data(), w, h);
+    if (!plain) return;
+    const float mw = (float)w * scale, mh = (float)h * scale;
+    const float x = frame->x + (frame->w - mw) / 2.0f, y = frame->y + (frame->h - mh) / 2.0f;
+    const ImTextureID shaded = (ImTextureID)gb_platform_hud_shaded(1, mw, mh);
+    ImGui::GetBackgroundDrawList()->AddImage(shaded ? shaded : plain, ImVec2(x, y), ImVec2(x + mw, y + mh));
+}
+
+static void map_buttons(struct GBContext *ctx, const GBHudFrame *frame) {
+    static int was_open, button_held = 1;
+    const int button = gb_platform_game_action_held(shantae_map_action());
+    if (shantae_map_is_open() && was_open && button && !button_held) shantae_map_toggle(ctx);
+    else if (shantae_map_is_open() && !frame->menu_open) shantae_map_input(ctx, gb_platform_joypad_held());
+    button_held = button;
+    was_open = shantae_map_is_open();
+}
+
+// Over the picture, apart from it: at the size chosen, or Auto (auto_scale).
+// A shader preset runs on it on its own (gb_platform_hud_shaded), as on the
+// bottom UI.
+void game_draw_hud(struct GBContext *ctx, const GBHudFrame *frame) {
+    map_buttons(ctx, frame);
+    if (shantae_map_is_open()) {
+        if (frame->layers) draw_map(ctx, frame);
+        return;
+    }
+    if (!frame->layers || frame->picture_h <= 0) return;   // drawn into the picture instead
+    const int rows = shantae_view_bottom_rows(ctx, frame->native);
+    if (rows <= 0 || rows * 2 >= frame->picture_h) return;
+    static uint32_t pixels[SHANTAE_HUD_MAX_W * SHANTAE_HUD_MAX_H], clock[SHANTAE_CLOCK_W * SHANTAE_CLOCK_H];
+    int w = 0, h = 0, cw = 0, ch = 0;
+    const bool hud = shantae_hud_draw(ctx, pixels, &w, &h) != 0;
+    const bool timer = shantae_clock_mode() != SHANTAE_HUD_OFF && shantae_clock_draw(ctx, clock, &cw, &ch);
+    if (!hud && !timer) return;
+    const float scale = piece_scale(shantae_hud_size(), frame), clock_scale = piece_scale(shantae_clock_size(), frame);
+    const float hw = hud ? (float)w * scale : 0.0f, hh = hud ? (float)h * scale : 0.0f;
+    const float tw = (float)cw * clock_scale, th = (float)ch * clock_scale;
+    float x, y, tx, ty;
+    place_both(frame->x, frame->y, frame->w, frame->h, rows * frame->h / frame->picture_h, hw, hh, scale, tw, th,
+               clock_scale, &x, &y, &tx, &ty);
+    if (shantae_hud_size() == SHANTAE_HUD_PICTURE) snap(frame, shantae_hud_mode(), &x, &y);
+    if (shantae_clock_size() == SHANTAE_HUD_PICTURE) snap(frame, shantae_clock_mode(), &tx, &ty);
+    ImDrawList *draw = ImGui::GetBackgroundDrawList();
+    draw->PushClipRect(ImVec2(frame->x, frame->y), ImVec2(frame->x + frame->w, frame->y + frame->h), true);
+    // Slot 0 the HUD, 2 the clock: each through a chain of its own.
+    const struct { bool on; int slot; const uint32_t *pixels; int w, h; float x, y, sw, sh; } pieces[] = {
+        {hud, 0, pixels, w, h, x, y, hw, hh},
+        {timer, 2, clock, cw, ch, tx, ty, tw, th},
+    };
+    for (const auto &p : pieces) {
+        if (!p.on) continue;
+        const ImTextureID plain = (ImTextureID)gb_platform_hud_texture(p.slot, p.pixels, p.w, p.h);
+        if (!plain) continue;
+        const ImTextureID shaded = (ImTextureID)gb_platform_hud_shaded(p.slot, p.sw, p.sh);
+        draw->AddImage(shaded ? shaded : plain, ImVec2(p.x, p.y), ImVec2(p.x + p.sw, p.y + p.sh), ImVec2(0, 0),
+                       ImVec2(1, 1), IM_COL32(255, 255, 255, HUD_ALPHA));
+    }
+    draw->PopClipRect();
+}
+
+// A piece (w x h) into the picture at x0,y0, a little translucent.
+static void blend_into(uint32_t *picture, int width, int height, const uint32_t *pixels, int w, int h, int x0,
+                       int y0) {
+    for (int y = 0; y < h; ++y) {
+        if (y0 + y < 0 || y0 + y >= height) continue;
+        for (int x = 0; x < w; ++x) {
+            const uint32_t c = pixels[y * w + x];
+            const unsigned a = (c >> 24) * HUD_ALPHA / 255;
+            if (!a || x0 + x < 0 || x0 + x >= width) continue;
+            uint32_t *p = picture + (size_t)(y0 + y) * width + x0 + x;
+            uint32_t mixed = 0xFF000000u;
+            for (int shift = 0; shift < 24; shift += 8) {
+                const unsigned over = (c >> shift) & 0xFF, under = (*p >> shift) & 0xFF;
+                mixed |= ((over * a + under * (255 - a)) / 255) << shift;
+            }
+            *p = mixed;
+        }
+    }
+}
+
+// With a preset that draws over the whole window (a bezel), the picture is
+// somewhere inside what the preset draws: the HUD and the clock go into the
+// picture, one of their pixels a picture pixel, and the preset shades them
+// with the game.
+void game_draw_hud_into_picture(struct GBContext *ctx, uint32_t *picture, int width, int height, int native) {
+    if (shantae_map_is_open()) {   // the map, a map pixel a picture pixel, over the whole picture
+        static std::vector<uint32_t> map;
+        map.resize((size_t)width * height);
+        if (!shantae_map_draw(ctx, map.data(), width, height)) return;
+        for (size_t i = 0; i < map.size(); ++i) {
+            const uint32_t c = map[i];
+            const unsigned a = c >> 24;
+            uint32_t mixed = 0xFF000000u;
+            for (int shift = 0; shift < 24; shift += 8) {
+                const unsigned over = (c >> shift) & 0xFF, under = (picture[i] >> shift) & 0xFF;
+                mixed |= ((over * a + under * (255 - a)) / 255) << shift;
+            }
+            picture[i] = mixed;
+        }
+        return;
+    }
+    const int rows = shantae_view_bottom_rows(ctx, native);
+    if (rows <= 0 || rows * 2 >= height) return;
+    static uint32_t pixels[SHANTAE_HUD_MAX_W * SHANTAE_HUD_MAX_H], clock[SHANTAE_CLOCK_W * SHANTAE_CLOCK_H];
+    int w = 0, h = 0, cw = 0, ch = 0;
+    const bool hud = shantae_hud_draw(ctx, pixels, &w, &h) != 0;
+    const bool timer = shantae_clock_mode() != SHANTAE_HUD_OFF && shantae_clock_draw(ctx, clock, &cw, &ch);
+    if (!hud) w = h = 0;
+    float x, y, tx, ty;
+    place_both(0.0f, 0.0f, (float)width, (float)height, (float)rows, (float)w, (float)h, 1.0f, (float)cw, (float)ch,
+               1.0f, &x, &y, &tx, &ty);
+    if (hud) blend_into(picture, width, height, pixels, w, h, (int)x, (int)y);
+    if (timer) blend_into(picture, width, height, clock, cw, ch, (int)tx, (int)ty);
 }

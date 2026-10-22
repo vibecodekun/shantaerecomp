@@ -1,14 +1,17 @@
 /*
  * launcher_options.c -- Shantae's options on the recomp-ui launcher's Mods page.
  *
- * Seven built-in features: "GBA Enhanced mode" with a Colors choice,
+ * Eleven built-in features: "GBA Enhanced mode" with a Colors choice,
  * "Expanded view" with an aspect ratio (or Adaptive, filling the screen), a
  * zoom (the original's height or the default's), a width and height in
  * pixels, the scale of the original view it falls back to, the room zoom and
  * the bottom UI, "Remove slowdown", "Reduce input lag",
  * "Smoother movement" with what a whip does on the move, the air speed, the
  * crawl and the transformations, "Easier dancing" with the dance steps and
- * invincibility after transforming, and "Text speed" with its speed.
+ * invincibility after transforming, "Text speed" with its speed, and
+ * "Transformation buttons" with where their HUD is drawn, its layout and size,
+ * "Map" with how much of it shows and whether enemies are marked, "Day and
+ * night clock" with its corner and size, and "Zombie Caravan stays".
  * Values are stored in shantae.ini through the accessors in extras.c and take
  * effect when the game boots, so there is nothing to stage or commit.
  */
@@ -19,6 +22,9 @@
 #include "forms.h"
 #include "dance.h"
 #include "dialogue.h"
+#include "transform.h"
+#include "hud.h"
+#include "map.h"
 #include "gb_custom_view.h"
 
 #include <SDL.h>
@@ -101,6 +107,58 @@ static const char *const invincibles[][2] = {
     {"blink", "Blink and stay safe for two seconds"},
 };
 
+#define FEATURE_MAP "map"
+#define OPTION_MAP_WHOLE "map_whole"
+#define OPTION_MAP_ENEMIES "map_enemies"
+#define OPTION_MAP_SIZE "map_size"
+#define FEATURE_CLOCK "clock"
+#define OPTION_CLOCK_CORNER "clock_corner"
+#define OPTION_CLOCK_SIZE "clock_size"
+#define FEATURE_CARAVAN "caravan_stays"
+#define FEATURE_BUTTONS "transform_buttons"
+#define OPTION_HUD "hud"
+static const char *const huds[][2] = {   /* in SHANTAE_HUD_* order */
+    {"off", "Off"},
+    {"top_left", "Top left"},
+    {"top_right", "Top right"},
+    {"bottom_left", "Bottom left"},
+    {"bottom_right", "Bottom right"},
+};
+#define HUDS (int)(sizeof(huds) / sizeof(huds[0]))
+#define OPTION_HUD_SIZE "hud_size"
+#define OPTION_HUD_LAYOUT "hud_layout"
+/* hud_columns: 1-3, or SHANTAE_HUD_ROW. */
+static const struct { const char *value, *label; int columns; } hud_layouts[] = {
+    {"1", "1 column", 1},
+    {"2", "2 columns", 2},
+    {"3", "3 columns", 3},
+    {"row", "One row", SHANTAE_HUD_ROW},
+};
+#define HUD_LAYOUTS (int)(sizeof(hud_layouts) / sizeof(hud_layouts[0]))
+
+/* The HUD's and the clock's sizes as the options list them: the picture's
+ * pixels, Auto, then 1-8x. */
+#define SIZE_CHOICES (SHANTAE_HUD_SIZE_MAX + 2)
+static int size_of_choice(int index) {
+    return index == 0 ? SHANTAE_HUD_PICTURE : index == 1 ? SHANTAE_HUD_AUTO : index - 1;
+}
+static void size_value(int size, char *out, size_t n) {
+    if (size == SHANTAE_HUD_PICTURE) snprintf(out, n, "picture");
+    else if (size == SHANTAE_HUD_AUTO) snprintf(out, n, "auto");
+    else snprintf(out, n, "%d", size);
+}
+static void size_label(int size, char *out, size_t n) {
+    if (size == SHANTAE_HUD_PICTURE) snprintf(out, n, "The picture's pixels");
+    else if (size == SHANTAE_HUD_AUTO) snprintf(out, n, "Auto: half the original's pixels");
+    else snprintf(out, n, "%dx", size);
+}
+/* A size from its value, or -1. */
+static int size_parse(const char *value) {
+    if (!strcmp(value, "picture")) return SHANTAE_HUD_PICTURE;
+    if (!strcmp(value, "auto")) return SHANTAE_HUD_AUTO;
+    const int size = atoi(value);
+    return size >= 1 && size <= SHANTAE_HUD_SIZE_MAX ? size : -1;
+}
 static char s_error[256];
 
 /* Original view scaling choices: the Scaling Mode, the four modes, whole
@@ -206,9 +264,25 @@ static int is_dance(const char *package_id, const char *feature_id) {
     return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
            strcmp(feature_id, FEATURE_DANCE) == 0;
 }
+static int is_buttons(const char *package_id, const char *feature_id) {
+    return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
+           strcmp(feature_id, FEATURE_BUTTONS) == 0;
+}
 static int is_text(const char *package_id, const char *feature_id) {
     return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
            strcmp(feature_id, FEATURE_TEXT) == 0;
+}
+static int is_map(const char *package_id, const char *feature_id) {
+    return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
+           strcmp(feature_id, FEATURE_MAP) == 0;
+}
+static int is_clock(const char *package_id, const char *feature_id) {
+    return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
+           strcmp(feature_id, FEATURE_CLOCK) == 0;
+}
+static int is_caravan(const char *package_id, const char *feature_id) {
+    return package_id && feature_id && strcmp(package_id, PACKAGE_ID) == 0 &&
+           strcmp(feature_id, FEATURE_CARAVAN) == 0;
 }
 
 /* ---- package surface: a single built-in package the Features view owns ---- */
@@ -236,13 +310,92 @@ static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
 
 static int feature_count(void *ctx) {
     (void)ctx;
-    return 7;
+    return 11;
 }
 
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
     (void)ctx;
-    if (index < 0 || index > 6 || !out) return 0;
+    if (index < 0 || index > 10 || !out) return 0;
     memset(out, 0, sizeof(*out));
+    if (index == 10) {
+        snprintf(out->id, sizeof(out->id), "%s", FEATURE_CARAVAN);
+        snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
+        snprintf(out->package_version, sizeof(out->package_version), "1.0");
+        snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
+        snprintf(out->name, sizeof(out->name), "Zombie Caravan stays");
+        snprintf(out->description, sizeof(out->description),
+                 "The Zombie Caravan stops every night between the Ghost and Archer Forests, where it first "
+                 "stops. Off, as in the original: later in the story it moves on each night to one of four "
+                 "borders (Mens Desert and Naga Wasteland, Rain Storm and Snail Wasteland, the forests, Eagle "
+                 "Wasteland and Mud Bog), picked when she first crosses one of them that night; the map shows "
+                 "it there from then on.");
+        snprintf(out->group, sizeof(out->group), "Gameplay");
+        snprintf(out->status, sizeof(out->status), "%s",
+                 shantae_caravan_stays() ? "On: between the Ghost and Archer Forests" : "Off: moves on, as in the original");
+        out->enabled = shantae_caravan_stays();
+        return 1;
+    }
+    if (index == 9) {
+        snprintf(out->id, sizeof(out->id), "%s", FEATURE_CLOCK);
+        snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
+        snprintf(out->package_version, sizeof(out->package_version), "1.0");
+        snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
+        snprintf(out->name, sizeof(out->name), "Day and night clock");
+        snprintf(out->description, sizeof(out->description),
+                 "The sun or the moon and the minutes and seconds to the next nightfall or daybreak, in the "
+                 "status bar's own numerals and colors, in a corner of the picture whatever its shape, beside "
+                 "the transformation buttons' HUD when they share one. Dimmed while time stands still, as "
+                 "in scenes. Shader presets shade it on its own, as the HUD.");
+        snprintf(out->group, sizeof(out->group), "Gameplay");
+        if (shantae_clock_mode() == SHANTAE_HUD_OFF) snprintf(out->status, sizeof(out->status), "Off");
+        else snprintf(out->status, sizeof(out->status), "On: %s", huds[shantae_clock_mode()][1]);
+        out->enabled = shantae_clock_mode() != SHANTAE_HUD_OFF;
+        out->option_count = 2;
+        return 1;
+    }
+    if (index == 8) {
+        snprintf(out->id, sizeof(out->id), "%s", FEATURE_MAP);
+        snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
+        snprintf(out->package_version, sizeof(out->package_version), "1.0");
+        snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
+        snprintf(out->name, sizeof(out->name), "Map");
+        snprintf(out->description, sizeof(out->description),
+                 "A map screen on its own button (M; the right stick's click on a controller), the game paused "
+                 "while it is open: the world as cells laid out as on vgmaps' World Map, and the area she is "
+                 "in drawn as its terrain from the ROM. Heart holders, fireflies (at night), warp squids, "
+                 "talismans, save statues and caves are marked, dimmed once taken. A sun or moon counts down "
+                 "to the next nightfall or daybreak. The pad moves it, A zooms, B closes it.");
+        snprintf(out->group, sizeof(out->group), "Gameplay");
+        snprintf(out->status, sizeof(out->status), "%s", !shantae_map_on() ? "Off"
+                 : shantae_map_whole() ? "On: the whole map" : "On: filled in as she explores");
+        out->enabled = shantae_map_on();
+        out->option_count = 3;
+        return 1;
+    }
+    if (index == 7) {
+        snprintf(out->id, sizeof(out->id), "%s", FEATURE_BUTTONS);
+        snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
+        snprintf(out->package_version, sizeof(out->package_version), "1.0");
+        snprintf(out->package_name, sizeof(out->package_name), "Shantae options");
+        snprintf(out->name, sizeof(out->name), "Transformation buttons");
+        snprintf(out->description, sizeof(out->description),
+                 "A button for each form whose dance she has learned: monkey, elephant, spider, harpy "
+                 "and tinkerbat. She becomes it at once, standing, walking or in the air, and its button "
+                 "again turns her back. A form switches only where it fits (the elephant stays out of the "
+                 "monkey's passages), never in a scene, a shop or a dialogue. A sixth heals as the heal "
+                 "dance does, in any form: 10 gems a heart. Bind them in the in-game settings' Controls: "
+                 "keys 1-6, and X, Y, LB and RB on a controller. Select still dances.");
+        snprintf(out->group, sizeof(out->group), "Gameplay");
+        if (!shantae_transform_buttons())
+            snprintf(out->status, sizeof(out->status), "Off: transform by dancing only");
+        else if (shantae_hud_mode() == SHANTAE_HUD_OFF)
+            snprintf(out->status, sizeof(out->status), "On: no HUD");
+        else
+            snprintf(out->status, sizeof(out->status), "On: HUD %s", huds[shantae_hud_mode()][1]);
+        out->enabled = shantae_transform_buttons();
+        out->option_count = 3;
+        return 1;
+    }
     if (index == 6) {
         snprintf(out->id, sizeof(out->id), "%s", FEATURE_TEXT);
         snprintf(out->package_id, sizeof(out->package_id), "%s", PACKAGE_ID);
@@ -910,9 +1063,121 @@ static int text_set_option(const char *option_id, const char *value) {
     return 0;
 }
 
+static int buttons_option_get(int index, RecompLauncherCModOption *out) {
+    if (index < 0 || index > 2) return 0;
+    memset(out, 0, sizeof(*out));
+    if (index == 2) {
+        snprintf(out->id, sizeof(out->id), OPTION_HUD_SIZE);
+        snprintf(out->label, sizeof(out->label), "HUD size");
+        snprintf(out->description, sizeof(out->description),
+                 "Screen pixels for each of the HUD's pixels. Auto is half the original picture's at the "
+                 "window's size (3 on a 1080p screen), the same whatever the view's shape or the room zoom. "
+                 "The picture's pixels: the game's own size, on their grid, so a shader preset's LCD dots or "
+                 "scanlines are the game's. A shader preset shades it on its own, as the bottom UI; with a "
+                 "preset that draws the whole window (a bezel), it is drawn into the picture at the game's "
+                 "pixels.");
+        size_value(shantae_hud_size(), out->value, sizeof(out->value));
+        snprintf(out->default_value, sizeof(out->default_value), "auto");
+        out->type = RECOMP_MOD_OPTION_CHOICE;
+        out->choice_count = SIZE_CHOICES;
+        out->disabled = !shantae_transform_buttons() || shantae_hud_mode() == SHANTAE_HUD_OFF;
+        return 1;
+    }
+    if (index == 1) {
+        snprintf(out->id, sizeof(out->id), OPTION_HUD_LAYOUT);
+        snprintf(out->label, sizeof(out->label), "HUD layout");
+        snprintf(out->description, sizeof(out->description),
+                 "How the HUD's icons are laid out: in one column down the side, two or three columns "
+                 "(two rows of three, the default), or all in one row across the top.");
+        const int columns = shantae_hud_columns();
+        for (int i = 0; i < HUD_LAYOUTS; ++i)
+            if (hud_layouts[i].columns == columns) snprintf(out->value, sizeof(out->value), "%s", hud_layouts[i].value);
+        snprintf(out->default_value, sizeof(out->default_value), "3");
+        out->type = RECOMP_MOD_OPTION_CHOICE;
+        out->choice_count = HUD_LAYOUTS;
+        out->disabled = !shantae_transform_buttons() || shantae_hud_mode() == SHANTAE_HUD_OFF;
+        return 1;
+    }
+    snprintf(out->id, sizeof(out->id), OPTION_HUD);
+    snprintf(out->label, sizeof(out->label), "Buttons HUD");
+    snprintf(out->description, sizeof(out->description),
+             "The Dance Menu's icons for the buttons, in a corner of the picture whatever its shape "
+             "(the original's or the expanded view's), never in the black beside it; a bottom corner sits "
+             "above the status bar, or a dialogue box while one is up. The form she is now is framed in "
+             "yellow; forms not yet learned are dark, and so is the heal when it would heal nothing.");
+    snprintf(out->value, sizeof(out->value), "%s", huds[shantae_hud_mode()][0]);
+    snprintf(out->default_value, sizeof(out->default_value), "top_left");
+    out->type = RECOMP_MOD_OPTION_CHOICE;
+    out->choice_count = HUDS;
+    out->disabled = !shantae_transform_buttons();
+    return 1;
+}
+
 static int feature_option_get(void *ctx, const char *package_id, const char *feature_id,
                               int index, RecompLauncherCModOption *out) {
     (void)ctx;
+    if (is_buttons(package_id, feature_id) && out) return buttons_option_get(index, out);
+    if (is_clock(package_id, feature_id) && out) {
+        if (index < 0 || index > 1) return 0;
+        memset(out, 0, sizeof(*out));
+        const int mode = shantae_clock_mode(), size = shantae_clock_size();
+        if (index == 0) {
+            snprintf(out->id, sizeof(out->id), OPTION_CLOCK_CORNER);
+            snprintf(out->label, sizeof(out->label), "Corner");
+            snprintf(out->description, sizeof(out->description),
+                     "Where the clock is drawn; at the bottom, above the status bar or a dialogue box.");
+            snprintf(out->value, sizeof(out->value), "%s", huds[mode == SHANTAE_HUD_OFF ? SHANTAE_HUD_TOP_RIGHT : mode][0]);
+            snprintf(out->default_value, sizeof(out->default_value), "top_right");
+            out->choice_count = HUDS - 1;
+        } else {
+            snprintf(out->id, sizeof(out->id), OPTION_CLOCK_SIZE);
+            snprintf(out->label, sizeof(out->label), "Clock size");
+            snprintf(out->description, sizeof(out->description),
+                     "The picture's pixels (the default): the size of the status bar's own numerals, on the "
+                     "picture's pixel grid, so a shader preset's LCD dots or scanlines are the game's. Auto: "
+                     "the HUD's, half the original picture's at the window's size. Or screen pixels for each "
+                     "of the clock's.");
+            size_value(size, out->value, sizeof(out->value));
+            snprintf(out->default_value, sizeof(out->default_value), "picture");
+            out->choice_count = SIZE_CHOICES;
+        }
+        out->type = RECOMP_MOD_OPTION_CHOICE;
+        out->disabled = mode == SHANTAE_HUD_OFF;
+        return 1;
+    }
+    if (is_map(package_id, feature_id) && out) {
+        if (index < 0 || index > 2) return 0;
+        memset(out, 0, sizeof(*out));
+        if (index == 2) {
+            snprintf(out->id, sizeof(out->id), OPTION_MAP_SIZE);
+            snprintf(out->label, sizeof(out->label), "Map size");
+            snprintf(out->description, sizeof(out->description),
+                     "The picture's pixels (the default): the map is drawn at the game's own pixel size, on the "
+                     "picture's grid, so a shader preset's LCD dots or scanlines are the game's. Auto: half the "
+                     "original picture's at the window's size, showing more of the map at once. Or screen "
+                     "pixels for each of the map's.");
+            size_value(shantae_map_size(), out->value, sizeof(out->value));
+            snprintf(out->default_value, sizeof(out->default_value), "picture");
+            out->type = RECOMP_MOD_OPTION_CHOICE;
+            out->choice_count = SIZE_CHOICES;
+            out->disabled = !shantae_map_on();
+            return 1;
+        }
+        snprintf(out->id, sizeof(out->id), index ? OPTION_MAP_ENEMIES : OPTION_MAP_WHOLE);
+        snprintf(out->label, sizeof(out->label), index ? "Enemies" : "Shown");
+        snprintf(out->description, sizeof(out->description), "%s",
+                 index ? "Where enemies are placed, as small red dots, under the other markers."
+                       : "As she explores: cells fill in as the camera shows them, kept with each save file "
+                         "(in cartridge RAM the game leaves unused) and with save states. The whole map: "
+                         "everything from the start.");
+        snprintf(out->value, sizeof(out->value), "%s",
+                 index ? (shantae_map_enemies() ? "on" : "off") : (shantae_map_whole() ? "whole" : "explored"));
+        snprintf(out->default_value, sizeof(out->default_value), "%s", index ? "off" : "explored");
+        out->type = RECOMP_MOD_OPTION_CHOICE;
+        out->choice_count = 2;
+        out->disabled = !shantae_map_on();
+        return 1;
+    }
     if (is_text(package_id, feature_id) && out) return text_option_get(index, out);
     if (is_view(package_id, feature_id) && out) return view_option_get(index, out);
     if (is_moves(package_id, feature_id) && out) return moves_option_get(index, out);
@@ -936,6 +1201,57 @@ static int feature_option_get(void *ctx, const char *package_id, const char *fea
 static int feature_choice_get(void *ctx, const char *package_id, const char *feature_id,
                               const char *option_id, int index, RecompLauncherCModChoice *out) {
     (void)ctx;
+    if (is_map(package_id, feature_id) && option_id && !strcmp(option_id, OPTION_MAP_SIZE) && out) {
+        if (index < 0 || index >= SIZE_CHOICES) return 0;
+        memset(out, 0, sizeof(*out));
+        size_value(size_of_choice(index), out->value, sizeof(out->value));
+        size_label(size_of_choice(index), out->label, sizeof(out->label));
+        return 1;
+    }
+    if (is_map(package_id, feature_id) && option_id && out) {
+        static const char *const whole[2][2] = {{"explored", "As she explores"}, {"whole", "The whole map"}};
+        static const char *const enemies[2][2] = {{"off", "Off"}, {"on", "On"}};
+        if (index < 0 || index > 1) return 0;
+        const char *const *choice = strcmp(option_id, OPTION_MAP_ENEMIES) ? whole[index] : enemies[index];
+        memset(out, 0, sizeof(*out));
+        snprintf(out->value, sizeof(out->value), "%s", choice[0]);
+        snprintf(out->label, sizeof(out->label), "%s", choice[1]);
+        return 1;
+    }
+    if (is_clock(package_id, feature_id) && option_id && out) {
+        memset(out, 0, sizeof(*out));
+        if (!strcmp(option_id, OPTION_CLOCK_CORNER)) {
+            if (index < 0 || index >= HUDS - 1) return 0;
+            snprintf(out->value, sizeof(out->value), "%s", huds[index + 1][0]);
+            snprintf(out->label, sizeof(out->label), "%s", huds[index + 1][1]);
+            return 1;
+        }
+        if (index < 0 || index >= SIZE_CHOICES) return 0;
+        size_value(size_of_choice(index), out->value, sizeof(out->value));
+        size_label(size_of_choice(index), out->label, sizeof(out->label));
+        return 1;
+    }
+    if (is_buttons(package_id, feature_id) && option_id && !strcmp(option_id, OPTION_HUD) && out) {
+        if (index < 0 || index >= HUDS) return 0;
+        memset(out, 0, sizeof(*out));
+        snprintf(out->value, sizeof(out->value), "%s", huds[index][0]);
+        snprintf(out->label, sizeof(out->label), "%s", huds[index][1]);
+        return 1;
+    }
+    if (is_buttons(package_id, feature_id) && option_id && !strcmp(option_id, OPTION_HUD_SIZE) && out) {
+        if (index < 0 || index >= SIZE_CHOICES) return 0;
+        memset(out, 0, sizeof(*out));
+        size_value(size_of_choice(index), out->value, sizeof(out->value));
+        size_label(size_of_choice(index), out->label, sizeof(out->label));
+        return 1;
+    }
+    if (is_buttons(package_id, feature_id) && option_id && !strcmp(option_id, OPTION_HUD_LAYOUT) && out) {
+        if (index < 0 || index >= HUD_LAYOUTS) return 0;
+        memset(out, 0, sizeof(*out));
+        snprintf(out->value, sizeof(out->value), "%s", hud_layouts[index].value);
+        snprintf(out->label, sizeof(out->label), "%s", hud_layouts[index].label);
+        return 1;
+    }
     if (is_moves(package_id, feature_id) && option_id && out) return moves_choice_get(option_id, index, out);
     if (is_dance(package_id, feature_id) && option_id && out) return dance_choice_get(option_id, index, out);
     if (is_view(package_id, feature_id) && option_id && strcmp(option_id, OPTION_ASPECT) == 0 && out)
@@ -1010,6 +1326,23 @@ static int feature_enable(void *ctx, const char *package_id, const char *feature
         shantae_set_easy_dance(enabled);
         return 1;
     }
+    if (is_buttons(package_id, feature_id)) {
+        shantae_set_transform_buttons(enabled);
+        return 1;
+    }
+    if (is_map(package_id, feature_id)) {
+        shantae_set_map_on(enabled);
+        return 1;
+    }
+    if (is_clock(package_id, feature_id)) {
+        if (!enabled) shantae_set_clock_mode(SHANTAE_HUD_OFF);
+        else if (shantae_clock_mode() == SHANTAE_HUD_OFF) shantae_set_clock_mode(SHANTAE_HUD_TOP_RIGHT);
+        return 1;
+    }
+    if (is_caravan(package_id, feature_id)) {
+        shantae_set_caravan_stays(enabled);
+        return 1;
+    }
     if (is_text(package_id, feature_id)) {
         /* On from 0 is the default speed; the speed is kept otherwise. */
         if (!enabled) shantae_set_text_speed(0);
@@ -1028,6 +1361,66 @@ static int feature_set_option(void *ctx, const char *package_id, const char *fea
     if (is_moves(package_id, feature_id) && option_id && value) return moves_set_option(option_id, value);
     if (is_dance(package_id, feature_id) && option_id && value) return dance_set_option(option_id, value);
     if (is_text(package_id, feature_id) && option_id && value) return text_set_option(option_id, value);
+    if (is_clock(package_id, feature_id) && option_id && value) {
+        if (!strcmp(option_id, OPTION_CLOCK_CORNER)) {
+            for (int i = SHANTAE_HUD_TOP_LEFT; i < HUDS; ++i)
+                if (!strcmp(value, huds[i][0])) {
+                    shantae_set_clock_mode(i);
+                    return 1;
+                }
+        } else if (!strcmp(option_id, OPTION_CLOCK_SIZE)) {
+            const int size = size_parse(value);
+            if (size >= 0) {
+                shantae_set_clock_size(size);
+                return 1;
+            }
+        }
+        snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
+        return 0;
+    }
+    if (is_map(package_id, feature_id) && option_id && value) {
+        if (!strcmp(option_id, OPTION_MAP_WHOLE) && (!strcmp(value, "whole") || !strcmp(value, "explored"))) {
+            shantae_set_map_whole(!strcmp(value, "whole"));
+            return 1;
+        }
+        if (!strcmp(option_id, OPTION_MAP_ENEMIES) && (!strcmp(value, "on") || !strcmp(value, "off"))) {
+            shantae_set_map_enemies(!strcmp(value, "on"));
+            return 1;
+        }
+        if (!strcmp(option_id, OPTION_MAP_SIZE) && size_parse(value) >= 0) {
+            shantae_set_map_size(size_parse(value));
+            return 1;
+        }
+        snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
+        return 0;
+    }
+    if (is_buttons(package_id, feature_id) && option_id && value && !strcmp(option_id, OPTION_HUD_SIZE)) {
+        const int size = size_parse(value);
+        if (size < 0) {
+            snprintf(s_error, sizeof(s_error), "Unknown HUD size '%s'.", value);
+            return 0;
+        }
+        shantae_set_hud_size(size);
+        return 1;
+    }
+    if (is_buttons(package_id, feature_id) && option_id && value && !strcmp(option_id, OPTION_HUD)) {
+        for (int i = 0; i < HUDS; ++i)
+            if (!strcmp(value, huds[i][0])) {
+                shantae_set_hud_mode(i);
+                return 1;
+            }
+        snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
+        return 0;
+    }
+    if (is_buttons(package_id, feature_id) && option_id && value && !strcmp(option_id, OPTION_HUD_LAYOUT)) {
+        for (int i = 0; i < HUD_LAYOUTS; ++i)
+            if (!strcmp(value, hud_layouts[i].value)) {
+                shantae_set_hud_columns(hud_layouts[i].columns);
+                return 1;
+            }
+        snprintf(s_error, sizeof(s_error), "Unknown setting '%s' for '%s'.", value, option_id);
+        return 0;
+    }
     if (!is_feature(package_id, feature_id) || !option_id || !value ||
         strcmp(option_id, OPTION_COLORS) != 0) {
         return 0;
