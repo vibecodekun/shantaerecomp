@@ -16,5 +16,5 @@
   "links": [
     { "label": "Download", "url": "https://github.com/vibecodekun/shantaerecomp/releases/latest" }
   ],
-  "notes": "Playable from start to finish. GBA Enhanced extras on, an expanded world view at any aspect ratio and zoom, the whole room fitted above a status bar and dialogue of any size, no slowdown, reduced input lag, smoother movement in all six forms, adjustable text speed up to instant, IPS/BPS translation and fix patches running natively, rewind and save states. Windows x64, x86 and ARM64; Linux x86_64 and aarch64 as a tarball or AppImage. Needs your own copy of the USA cartridge, checked by its SHA-1; the repository contains no game code or data."
+  "notes": "Playable from start to finish. GBA Enhanced extras on, an expanded world view at any aspect ratio and zoom, the whole room kept above a status bar and dialogue of any size, no slowdown, reduced input lag, smoother movement in all six forms, a button for each transformation, a map, a day and night clock, adjustable text speed up to instant, IPS/BPS translation and fix patches running natively, rewind and save states. Windows x64, x86 and ARM64; Linux x86_64 and aarch64. Needs your own copy of the USA cartridge, checked by its SHA-1; the repository contains no game code or data."
 }
